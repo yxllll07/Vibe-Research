@@ -52,6 +52,8 @@ def main(argv: list[str] | None = None) -> int:
     au.add_argument("--date", required=True)
     au.add_argument("--file", default=None, help="9:25 最终竞价记录 JSON;不给则全部记 NO_AUCTION_DATA")
     sub.add_parser("paper", help="重放纸面账本,写 status.md")
+    rv = sub.add_parser("review", help="单日复盘:信号日 D 的计划、T 日执行到卖出、事后诊断")
+    rv.add_argument("--date", required=True)
     q = sub.add_parser("quality", help="数据覆盖率与一致性报告")
     q.add_argument("--start", default=None)
     q.add_argument("--end", default=None)
@@ -134,6 +136,10 @@ def main(argv: list[str] | None = None) -> int:
         from .system.daily import run_auction
 
         print(run_auction(cfg, _d(args.date), Path(args.file) if args.file else None))
+    elif args.cmd == "review":
+        from .system.review import review_day
+
+        print(review_day(cfg, _d(args.date)))
     elif args.cmd == "paper":
         from .data.calendar import TradingCalendar
         from .data.ingest import calendar_path
