@@ -70,9 +70,9 @@ def score_with_models(data: pd.DataFrame, models: list[ModeModel], name: str) ->
 
 
 def backtest_configs(data: pd.DataFrame, feats: pd.DataFrame, cal: TradingCalendar, period: Period,
-                     cfg: Config) -> dict[str, proxy_backtest.BacktestResult]:
+                     cfg: Config, configs: list[str] | None = None) -> dict[str, proxy_backtest.BacktestResult]:
     res = {}
-    for name in CONFIGS:
+    for name in configs or CONFIGS:
         col = f"score_{name}"
         sub = data.dropna(subset=[col])
         pool = top_k(sub[["trade_date", "ts_code", "mode", col]], col, k=cfg["pool"]["max_candidates_per_mode"])

@@ -35,6 +35,8 @@ def main(argv: list[str] | None = None) -> int:
     lk.add_argument("--run", default=None, help="实验目录,默认最新一次")
     bl = sub.add_parser("blind", help="对已锁定的实验评估盲测期(只允许一次)")
     bl.add_argument("--run", default=None, help="实验目录,默认最新一次")
+    dp = sub.add_parser("deep", help="M2 时序 CNN / M3 交叉注意力 Transformer,与 M0/M1 同口径对比")
+    dp.add_argument("--run", default=None, help="实验目录(提供 M0 规则与 M1 模型),默认最新一次")
     fz = sub.add_parser("freeze", help="为信号日 D 写冻结票池 frozen.vN.json")
     fz.add_argument("--signal-date", required=True)
     fz.add_argument("--score", default="m1_gbm_full", help="m0 / m1_logit_stock / m1_logit_full / m1_gbm_stock / m1_gbm_full")
@@ -88,6 +90,13 @@ def main(argv: list[str] | None = None) -> int:
 
         run = Path(args.run) if args.run else latest_run(cfg)
         print(lock_for_blind_test(run) if args.cmd == "lock" else evaluate_blind(cfg, run))
+    elif args.cmd == "deep":
+        from pathlib import Path
+
+        from .candidates.freeze_job import latest_run
+        from .evaluation.deep_experiment import run_deep
+
+        print(run_deep(cfg, Path(args.run) if args.run else latest_run(cfg)))
     elif args.cmd == "freeze":
         from .candidates.freeze_job import freeze
 
