@@ -49,16 +49,22 @@ def round_price(x: Decimal) -> float:
     return float(x.quantize(TICK, rounding=ROUND_HALF_UP))
 
 
+def band_prices(prev_close: float, pct: float) -> tuple[float, float]:
+    """(涨停价, 跌停价):前收 × (1 ± 比例),四舍五入到分。"""
+    if not prev_close or prev_close <= 0:
+        raise ValueError(f"前收盘 {prev_close!r} 无效,算不出涨跌停价")
+    p = Decimal(str(prev_close))
+    r = Decimal(str(pct))
+    return round_price(p * (1 + r)), round_price(p * (1 - r))
+
+
 def limit_band(prev_close: float, board: str, is_risk_warning: bool, trade_date: date,
                listed_trading_days: int | None = None) -> LimitBand:
     pct = limit_pct(board, is_risk_warning, trade_date, listed_trading_days)
     if pct is None:
         return LimitBand(None, None, None)
-    if not prev_close or prev_close <= 0:
-        raise ValueError(f"前收盘 {prev_close!r} 无效,算不出涨跌停价")
-    p = Decimal(str(prev_close))
-    r = Decimal(str(pct))
-    return LimitBand(pct, round_price(p * (1 + r)), round_price(p * (1 - r)))
+    up, down = band_prices(prev_close, pct)
+    return LimitBand(pct, up, down)
 
 
 def at_price(a: float | None, b: float | None) -> bool:

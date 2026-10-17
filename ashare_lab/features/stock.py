@@ -9,8 +9,13 @@ import numpy as np
 import pandas as pd
 
 
+def _roll(df: pd.DataFrame, col: str, n: int, how: str, min_periods: int | None = None) -> pd.Series:
+    r = df.groupby("ts_code", sort=False)[col].rolling(n, min_periods=min_periods or n)
+    return getattr(r, how)().reset_index(level=0, drop=True)
+
+
 def add_stock_features(ev: pd.DataFrame) -> pd.DataFrame:
-    df = ev.sort_values(["ts_code", "trade_date"]).copy()
+    df = ev.sort_values(["ts_code", "trade_date"]).reset_index(drop=True)
     g = df.groupby("ts_code", sort=False)
     df["ret_1"] = df["close"] / df["prev_close"] - 1
     df["log_ret_1"] = np.log1p(df["ret_1"])
@@ -25,19 +30,18 @@ def add_stock_features(ev: pd.DataFrame) -> pd.DataFrame:
     df["lower_shadow"] = (df[["open", "close"]].min(axis=1) - df["low"]) / df["prev_close"]
     df["close_pos_in_range"] = ((df["close"] - df["low"]) / rng).fillna(0.5)
     df["log_amount"] = np.log1p(df["amount_cny"])
-    ga = df.groupby("ts_code", sort=False)["amount_cny"]
     for n in (5, 20):
-        mean = ga.transform(lambda s: s.rolling(n, min_periods=n).mean())
-        df[f"amount_ratio_{n}"] = df["amount_cny"] / mean
+        df[f"amount_ratio_{n}"] = df["amount_cny"] / _roll(df, "amount_cny", n, "mean")
     for n in (5, 20, 60):
-        ma = gi.transform(lambda s: s.rolling(n, min_periods=n).mean())
-        df[f"close_to_ma_{n}"] = df["adj_index"] / ma - 1
-    peak = gi.transform(lambda s: s.rolling(20, min_periods=20).max())
-    df["drawdown_20"] = df["adj_index"] / peak - 1
+        df[f"close_to_ma_{n}"] = df["adj_index"] / _roll(df, "adj_index", n, "mean") - 1
+    df["drawdown_20"] = df["adj_index"] / _roll(df, "adj_index", 20, "max") - 1
     gl = df.groupby("ts_code", sort=False)
-    df["limit_up_count_20"] = gl["limit_up_close"].transform(lambda s: s.rolling(20, min_periods=1).sum())
-    df["broke_count_5"] = gl["broke_board"].transform(lambda s: s.rolling(5, min_periods=1).sum())
-    df["prev_limit_up"] = gl["limit_up_close"].shift(1).fillna(False).astype(bool)
+    df["_lu"] = df["limit_up_close"].astype(float)
+    df["_bb"] = df["broke_board"].astype(float)
+    df["limit_up_count_20"] = _roll(df, "_lu", 20, "sum", 1)
+    df["broke_count_5"] = _roll(df, "_bb", 5, "sum", 1)
+    df = df.drop(columns=["_lu", "_bb"])
+    df["prev_limit_up"] = gl["limit_up_close"].shift(1).astype("boolean").fillna(False).astype(bool)
     df["prev_streak"] = gl["limit_streak"].shift(1).fillna(0).astype(int)
     df["history_days"] = gl.cumcount() + 1
     # 截面分位(同一交易日内),只用当日已发生的数据

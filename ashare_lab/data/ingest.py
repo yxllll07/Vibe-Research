@@ -11,7 +11,7 @@ import pandas as pd
 
 from ..config import TZ, Config
 from . import calendar as cal
-from . import tdx
+from . import sws, tdx
 from .raw_store import RawStore
 
 log = logging.getLogger(__name__)
@@ -42,6 +42,19 @@ def ingest_calendar(cfg: Config) -> pd.DataFrame:
     root = cfg.data_root
     df = cal.fetch_calendar(RawStore(root))
     out = calendar_path(root)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    df.to_parquet(out, index=False)
+    return df
+
+
+def sectors_path(root: Path) -> Path:
+    return root / "normalized" / "sw_membership.parquet"
+
+
+def ingest_sectors(cfg: Config) -> pd.DataFrame:
+    root = cfg.data_root
+    df = sws.fetch(RawStore(root))
+    out = sectors_path(root)
     out.parent.mkdir(parents=True, exist_ok=True)
     df.to_parquet(out, index=False)
     return df

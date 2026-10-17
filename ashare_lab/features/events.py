@@ -7,24 +7,34 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from ..rules.limits import limit_band
+from ..rules.limits import band_prices, limit_pct
 
 
 def add_limit_events(panel: pd.DataFrame, listed_days: pd.Series | None = None) -> pd.DataFrame:
     df = panel.copy()
-    ups, downs, pcts = [], [], []
     ld = listed_days if listed_days is not None else pd.Series(pd.NA, index=df.index)
-    for pc, board, st, d, n in zip(df["prev_close"], df["board"], df["is_risk_warning"], df["trade_date"], ld):
-        if board not in ("main", "chinext", "star", "bse") or not pc or pc <= 0:
-            ups.append(np.nan); downs.append(np.nan); pcts.append(np.nan)
+    pcts = []
+    for board, st, d, n in zip(df["board"], df["is_risk_warning"], df["trade_date"], ld):
+        if board not in ("main", "chinext", "star", "bse"):
+            pcts.append(np.nan)
             continue
-        band = limit_band(pc, board, bool(st), d, None if pd.isna(n) else int(n))
-        ups.append(band.up if band.up is not None else np.nan)
-        downs.append(band.down if band.down is not None else np.nan)
-        pcts.append(band.pct if band.pct is not None else np.nan)
+        p = limit_pct(board, bool(st), d, None if pd.isna(n) else int(n))
+        pcts.append(np.nan if p is None else p)
+    df["limit_pct"] = pcts
+    # 涨跌停价只取决于 (前收, 比例):对去重后的组合用 Decimal 精确取整,再映射回每行
+    cache: dict[tuple[float, float], tuple[float, float]] = {}
+    ups, downs = [], []
+    for pc, p in zip(df["prev_close"], df["limit_pct"]):
+        if np.isnan(p) or not pc or pc <= 0:
+            ups.append(np.nan); downs.append(np.nan)
+            continue
+        key = (pc, p)
+        if key not in cache:
+            cache[key] = band_prices(pc, p)
+        u, dn = cache[key]
+        ups.append(u); downs.append(dn)
     df["up_limit"] = ups
     df["down_limit"] = downs
-    df["limit_pct"] = pcts
     traded = ~df["is_suspended"]
     eq = lambda a, b: (a - b).abs() < 1e-6  # noqa: E731
     df["limit_up_close"] = traded & eq(df["close"], df["up_limit"])
