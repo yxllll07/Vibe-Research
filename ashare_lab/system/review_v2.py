@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import date
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from ..config import Config
@@ -139,6 +140,41 @@ def review_day_v2(cfg: Config, d: date) -> Path:
         L.append("")
 
     # 6 后续验证
+    # 5b 选票打分:以 D 日收盘为基准,不考虑买卖时点
+    fw3 = cal.between(t, min(cal.shift(d, 3), cal.days[-1]))
+    px = pw.set_index(["trade_date", "ts_code"])
+    dclose = pd_.set_index("ts_code")["close"]
+
+    def score_row(code: str) -> dict:
+        def get(day, col):
+            try:
+                return float(px.loc[(day, code), col])
+            except KeyError:
+                return float("nan")
+        c0 = dclose.get(code, float("nan"))
+        highs = [get(x, "high") for x in fw3]
+        return {"T收盘": get(t, "close") / c0 - 1, "T最高": get(t, "high") / c0 - 1,
+                "3日最高": np.nanmax(highs) / c0 - 1 if highs else float("nan"),
+                "T涨停": bool(px.loc[(t, code), "limit_up_close"]) if (t, code) in px.index else False}
+    tday_ret = pw[(pw["trade_date"] == t) & pw["eligible"].astype(bool)].set_index("ts_code")["close"] / dclose - 1
+    cut = tday_ret.quantile(0.95)
+    L += ["## 5b. 选票打分(以 D 日收盘为基准,只看选得准不准)", "",
+          f"T 日主板可交易股票:平均收盘 {tday_ret.mean():+.2%},涨幅前 5% 的门槛 {cut:+.2%}。", "",
+          "| 模式 | 名次 | 股票 | 入选 | T 收盘 | T 盘中最高 | 3 日内最高 | T 涨停 | 前 5% |", "|---|---|---|---|---|---|---|---|---|"]
+    for m in "ABCDE":
+        cm = allc[allc["mode"] == m].sort_values("score", ascending=False)
+        for rank, code in enumerate(cm["ts_code"].head(3), 1):
+            s = score_row(code)
+            chosen = "✅" if (not picks.empty and code in set(picks["ts_code"])) else ""
+            L.append(f"| {m} | {rank} | {names.get(code)} | {chosen} | {s['T收盘']:+.2%} | {s['T最高']:+.2%} | "
+                     f"{s['3日最高']:+.2%} | {'✅' if s['T涨停'] else ''} | {'✅' if s['T收盘'] >= cut else ''} |")
+        if len(cm):
+            pool = [score_row(c) for c in cm["ts_code"]]
+            L.append(f"| {m} | 池平均({len(cm)}) |  |  | {np.nanmean([x['T收盘'] for x in pool]):+.2%} | "
+                     f"{np.nanmean([x['T最高'] for x in pool]):+.2%} | {np.nanmean([x['3日最高'] for x in pool]):+.2%} | "
+                     f"{np.mean([x['T涨停'] for x in pool]):.0%} |  |")
+    L.append("")
+
     L += ["## 6. 事后验证:主线核心后面怎么走", ""]
     fw = cal.between(d, min(cal.shift(d, 4), cal.days[-1]))
     focus = main[(main["is_mainline"].astype(bool) & main["role"].isin(["龙头", "前排"])) | main["is_space_leader"].astype(bool)]
