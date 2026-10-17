@@ -24,7 +24,7 @@ from ..evaluation.stats import block_bootstrap_ci, daily_returns
 from ..structure.sentiment import daily_metrics, sentiment_cycle
 from ..structure.theme import add_theme
 
-HOLD_RULES = {
+HOLD_RULES: dict[str, dict] = {
     "A": {"hold": 1, "stop": None, "extend_on_lu": True},
     "B": {"hold": 1, "stop": None, "extend_on_lu": True},
     "D": {"hold": 1, "stop": None, "extend_on_lu": True},
