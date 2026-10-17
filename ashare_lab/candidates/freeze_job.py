@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import json
 import pickle
 from datetime import date, datetime
 from pathlib import Path
@@ -18,7 +19,7 @@ from ..data.calendar import TradingCalendar
 from ..data.ingest import calendar_path
 from ..data.pit import d_postclose
 from .freeze import Candidate, FrozenPool, write_frozen
-from .modes import RULE_VERSION, candidate_rows, pick_slots, top_k
+from .modes import candidate_rows, pick_slots, top_k
 
 EVIDENCE_COLS = ["close", "ret_1", "ret_5", "limit_streak", "prev_streak", "amount_ratio_5", "close_pos_in_range",
                  "sw_l1", "sec_strength_rank", "sec_limit_up", "mkt_limit_up", "mkt_broke_rate"]
@@ -47,11 +48,14 @@ def freeze(cfg: Config, signal_date: date, score_config: str = "m1_gbm_full", ru
         raise RuntimeError(f"特征表里没有 {signal_date}:先 ingest + build")
     cal = TradingCalendar.load(calendar_path(cfg.data_root))
     target = cal.next(signal_date)
-    cands = candidate_rows(day)
-    flags = [f"RULE_{RULE_VERSION}", "OPEN_TIMES_UNKNOWN", "NO_TURNOVER_MARKETCAP"]
+    rules_path = run_dir / "rules.json"
+    rules = json.loads(rules_path.read_text(encoding="utf-8")) if rules_path.exists() else None
+    cands = candidate_rows(day, rules)
+    flags = [f"RULE_{cands['rule_version'].iloc[0] if len(cands) else 'NA'}", "OPEN_TIMES_UNKNOWN",
+             "NO_TURNOVER_MARKETCAP"]
     if score_config == "m0":
         cands["score"] = cands["m0_score"]
-        model_version = f"m0:{RULE_VERSION}"
+        model_version = f"m0@{run_dir.name}"
     else:
         kind, fs = score_config.split("_")[1:]
         with (run_dir / "models.pkl").open("rb") as fh:

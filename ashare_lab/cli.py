@@ -31,6 +31,10 @@ def main(argv: list[str] | None = None) -> int:
     b.add_argument("--start", default=None)
     b.add_argument("--end", default=None)
     sub.add_parser("experiment", help="M0/M1 训练 + 验证期评估与代理回测(不碰盲测期)")
+    lk = sub.add_parser("lock", help="锁定某次实验的模型与配置哈希,允许之后评估一次盲测期")
+    lk.add_argument("--run", default=None, help="实验目录,默认最新一次")
+    bl = sub.add_parser("blind", help="对已锁定的实验评估盲测期(只允许一次)")
+    bl.add_argument("--run", default=None, help="实验目录,默认最新一次")
     fz = sub.add_parser("freeze", help="为信号日 D 写冻结票池 frozen.vN.json")
     fz.add_argument("--signal-date", required=True)
     fz.add_argument("--score", default="m1_gbm_full", help="m0 / m1_logit_stock / m1_logit_full / m1_gbm_stock / m1_gbm_full")
@@ -76,6 +80,14 @@ def main(argv: list[str] | None = None) -> int:
         from .evaluation.experiment import run_experiment
 
         print(run_experiment(cfg))
+    elif args.cmd in ("lock", "blind"):
+        from pathlib import Path
+
+        from .candidates.freeze_job import latest_run
+        from .evaluation.experiment import evaluate_blind, lock_for_blind_test
+
+        run = Path(args.run) if args.run else latest_run(cfg)
+        print(lock_for_blind_test(run) if args.cmd == "lock" else evaluate_blind(cfg, run))
     elif args.cmd == "freeze":
         from .candidates.freeze_job import freeze
 
