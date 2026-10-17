@@ -10,9 +10,9 @@
 from __future__ import annotations
 
 import hashlib
-import pickle
 import warnings
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -132,11 +132,22 @@ def score_metrics(df: pd.DataFrame, score: np.ndarray, mode: str) -> dict:
     ics = [g["_s"].rank().corr(g["_r"].rank()) for _, g in tmp.groupby("trade_date") if len(g) >= 5]
     out["rank_ic_mean"] = float(np.nanmean(ics)) if ics else None
     out["rank_ic_days"] = len(ics)
+    ics_a = np.array([x for x in ics if not np.isnan(x)])
+    out["rank_ic_t"] = float(ics_a.mean() / ics_a.std() * np.sqrt(len(ics_a))) if len(ics_a) > 2 and ics_a.std() > 0 else None
+    # 信号层诊断:每日池内按分数五等分,最高组 − 最低组的平均目标收益(只报告,不参与选配置)
+    q = tmp.groupby("trade_date")["_s"].transform(lambda s: pd.qcut(s.rank(method="first"), 5, labels=False)
+                                                    if len(s) >= 10 else pd.Series(np.nan, index=s.index))
+    if q.notna().any():
+        daily = tmp.assign(_q=q).dropna(subset=["_q"]).groupby(["trade_date", "_q"])["_r"].mean().unstack()
+        if 0 in daily and 4 in daily:
+            spread = (daily[4] - daily[0]).dropna()
+            out["q5_mean_return"] = float(daily[4].mean())
+            out["q1_mean_return"] = float(daily[0].mean())
+            out["q5_minus_q1"] = float(spread.mean())
+            out["q5_minus_q1_t"] = float(spread.mean() / spread.std() * np.sqrt(len(spread))) if spread.std() > 0 else None
     return out
 
 
-def model_hash(models: list[ModeModel]) -> str:
-    h = hashlib.sha256()
-    for m in sorted(models, key=lambda x: (x.mode, x.feature_set, x.kind)):
-        h.update(pickle.dumps((m.mode, m.feature_set, m.kind, m.columns, m.model)))
-    return h.hexdigest()[:16]
+def model_hash(path) -> str:
+    """对落盘的 models.pkl 文件字节取哈希(反序列化再序列化的字节不保证一致,不能对内存对象取)。"""
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()[:16]

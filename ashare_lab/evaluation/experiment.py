@@ -143,7 +143,7 @@ def run_experiment(cfg: Config) -> Path:
         pickle.dump(models, fh)
     metrics = {
         "run_id": run_id, "rule_version": rules["rule_version"], "config_hash": cfg.hash(),
-        "model_hash": model_hash(models),
+        "model_hash": model_hash(out / "models.pkl"),
         "periods": {k: [str(v.start), str(v.end)] for k, v in periods.items()},
         "samples": {s: int((data["split"] == s).sum()) for s in ("train", "validation", "blind_test")},
         "blind_test_evaluated": False,
@@ -196,12 +196,13 @@ def render_report(m: dict, ablation: pd.DataFrame, period_name: str, backtests_k
         L.append(f"- {name}:{b.get('unfilled_by_reason', {})}")
     if ablation is not None and not ablation.empty:
         L += ["", f"## 分模式打分质量({period_name},目标 = 扣费后代理收益为正)", "",
-              "| 配置 | 模式 | 样本 | 正例率 | AUC | Brier | Precision@1 | Top1 平均目标收益 | RankIC 均值 |",
+              "| 配置 | 模式 | 样本 | 正例率 | AUC | Precision@1 | Top1 平均目标收益 | RankIC 均值 (t) | 五分组 Q5−Q1 (t) |",
               "|---|---|---|---|---|---|---|---|---|"]
         for r in ablation.sort_values(["mode", "config"]).itertuples(index=False):
-            L.append(f"| {r.config} | {r.mode} | {r.rows} | {_pct(r.base_rate)} | {_num(getattr(r, 'auc', None))} | "
-                     f"{_num(getattr(r, 'brier', None))} | {_pct(r.precision_at_1)} | {_pct(r.top1_mean_target_return)} | "
-                     f"{_num(r.rank_ic_mean)} |")
+            g = lambda k: getattr(r, k, None)  # noqa: E731
+            L.append(f"| {r.config} | {r.mode} | {r.rows} | {_pct(r.base_rate)} | {_num(g('auc'))} | "
+                     f"{_pct(r.precision_at_1)} | {_pct(r.top1_mean_target_return)} | "
+                     f"{_num(r.rank_ic_mean)} ({_num(g('rank_ic_t'), 1)}) | {_pct(g('q5_minus_q1'))} ({_num(g('q5_minus_q1_t'), 1)}) |")
     L += ["", "## 解读边界", "",
           "- 5 个配置同时比较,存在多重检验:单个配置的置信区间不跨 0 也不足以单独下结论。",
           "- 代理成交按开盘价 + 滑点,开盘即涨停 / 一字板不算买到;没有分钟数据,无法确认开盘后真实可成交量。",
@@ -221,11 +222,12 @@ def evaluate_blind(cfg: Config, run_dir: Path) -> Path:
     metrics = json.loads((run_dir / "metrics.json").read_text(encoding="utf-8"))
     if (run_dir / "blind_metrics.json").exists():
         raise RuntimeError("盲测期已评估过一次;再次评估不合法")
+    mh = model_hash(run_dir / "models.pkl")
+    if mh != metrics["model_hash"]:
+        raise RuntimeError("models.pkl 与 metrics.json 里的模型哈希不一致")
+    BlindTestLock(run_dir / "BLIND_TEST_LOCK.json").assert_unlocked_for(mh, cfg.hash())
     with (run_dir / "models.pkl").open("rb") as fh:
         models: list[ModeModel] = pickle.load(fh)
-    if model_hash(models) != metrics["model_hash"]:
-        raise RuntimeError("models.pkl 与 metrics.json 里的模型哈希不一致")
-    BlindTestLock(run_dir / "BLIND_TEST_LOCK.json").assert_unlocked_for(model_hash(models), cfg.hash())
     rules = json.loads((run_dir / "rules.json").read_text(encoding="utf-8"))
     data, feats, cal = load_dataset(cfg)
     bt = data[data["split"] == "blind_test"].copy()

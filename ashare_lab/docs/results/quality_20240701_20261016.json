@@ -1,0 +1,80 @@
+{
+  "range": [
+    "2024-07-01",
+    "2026-10-16"
+  ],
+  "calendar_trading_days": 556,
+  "present_days": 556,
+  "missing_days": [],
+  "coverage": 1.0,
+  "main_board_securities": 3255,
+  "listing_status": {
+    "pre_window": 3178,
+    "listed_in_window": 72,
+    "UNVERIFIED_LISTING": 5
+  },
+  "delisted_in_window_main": 25,
+  "unverified_listing_main": [
+    "000007.SZ",
+    "000040.SZ",
+    "000413.SZ",
+    "000976.SZ",
+    "002308.SZ"
+  ],
+  "out_of_band_rows": 0,
+  "out_of_band_sample": [],
+  "prev_close_discontinuities_main": 6825,
+  "limit_up_per_day": {
+    "mean": 74.4,
+    "max": 697,
+    "min": 19
+  },
+  "crosscheck_em_zt_pool": [
+    {
+      "date": "2026-09-30",
+      "status": "ok",
+      "tdx_rebuilt": 48,
+      "em_main": 48,
+      "both": 48,
+      "only_tdx": [],
+      "only_em": []
+    },
+    {
+      "date": "2026-10-09",
+      "status": "ok",
+      "tdx_rebuilt": 62,
+      "em_main": 62,
+      "both": 62,
+      "only_tdx": [],
+      "only_em": []
+    },
+    {
+      "date": "2026-10-15",
+      "status": "ok",
+      "tdx_rebuilt": 34,
+      "em_main": 34,
+      "both": 34,
+      "only_tdx": [],
+      "only_em": []
+    },
+    {
+      "date": "2026-10-16",
+      "status": "ok",
+      "tdx_rebuilt": 55,
+      "em_main": 53,
+      "both": 53,
+      "only_tdx": [
+        "000678",
+        "002531"
+      ],
+      "only_em": []
+    }
+  ],
+  "unknown_fields": [
+    "open_times",
+    "first_limit_time",
+    "turnover_rate",
+    "circ_mv",
+    "total_mv"
+  ]
+}

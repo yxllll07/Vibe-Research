@@ -5,6 +5,7 @@
 - 主板风险警示股票:2026-07-06 前 ±5%;沪深交易所 2026-04-24 发布的修订版交易规则自 2026-07-06 起调为 ±10%。
 - 创业板 / 科创板 ±20%,北交所 ±30%(本项目不交易,仅用于全市场广度统计)。
 - 注册制新股上市前 5 个交易日不设涨跌幅限制(主板自 2023-04-10 全面注册制起适用)。
+- 退市整理期首个交易日不设涨跌幅限制(实测 21 条退市整理首日收盘全部越出 ±10%,与规则一致)。
 涨跌停价 = 前收盘 × (1 ± 比例),四舍五入到 0.01 元;前收盘用交易所当日前收(除权日为除权参考价),
 不能用上一日的原始收盘价,也不能用前复权价。
 """
@@ -30,9 +31,12 @@ class LimitBand:
         return self.pct is not None
 
 
-def limit_pct(board: str, is_risk_warning: bool, trade_date: date, listed_trading_days: int | None = None) -> float | None:
+def limit_pct(board: str, is_risk_warning: bool, trade_date: date, listed_trading_days: int | None = None,
+              delisting_first_day: bool = False) -> float | None:
     """listed_trading_days:上市第几个交易日(首日 = 1);未知时传 None(视为早已上市)。"""
     if listed_trading_days is not None and listed_trading_days <= REGISTRATION_IPO_NO_LIMIT_DAYS:
+        return None
+    if delisting_first_day:
         return None
     if board == "main":
         if is_risk_warning and trade_date < MAIN_ST_10PCT_FROM:

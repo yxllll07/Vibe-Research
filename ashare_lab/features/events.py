@@ -13,12 +13,16 @@ from ..rules.limits import band_prices, limit_pct
 def add_limit_events(panel: pd.DataFrame, listed_days: pd.Series | None = None) -> pd.DataFrame:
     df = panel.copy()
     ld = listed_days if listed_days is not None else pd.Series(pd.NA, index=df.index)
+    # 退市整理期首日:按该股自己的交易序列,前一行不在整理期、本行在整理期
+    order = df.sort_values(["ts_code", "trade_date"]).index
+    prev_dl = df.loc[order].groupby("ts_code")["is_delisting_period"].shift(1).astype("boolean").fillna(False)
+    first_dl = (df.loc[order, "is_delisting_period"].astype(bool) & ~prev_dl.astype(bool)).reindex(df.index)
     pcts = []
-    for board, st, d, n in zip(df["board"], df["is_risk_warning"], df["trade_date"], ld):
+    for board, st, d, n, fd in zip(df["board"], df["is_risk_warning"], df["trade_date"], ld, first_dl):
         if board not in ("main", "chinext", "star", "bse"):
             pcts.append(np.nan)
             continue
-        p = limit_pct(board, bool(st), d, None if pd.isna(n) else int(n))
+        p = limit_pct(board, bool(st), d, None if pd.isna(n) else int(n), bool(fd))
         pcts.append(np.nan if p is None else p)
     df["limit_pct"] = pcts
     # 涨跌停价只取决于 (前收, 比例):对去重后的组合用 Decimal 精确取整,再映射回每行

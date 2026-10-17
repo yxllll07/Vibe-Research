@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from ashare_lab.config import TZ  # noqa: E402
 from ashare_lab.data.calendar import TradingCalendar  # noqa: E402
+from ashare_lab.data.securities import is_delisting_period, is_listing_day_marker, is_risk_warning  # noqa: E402
 from ashare_lab.rules.limits import limit_band  # noqa: E402
 
 
@@ -33,8 +34,8 @@ def bar(d: date, ts: str, prev_close: float, close: float, *, open_: float | Non
         "security_type": "A", "board": board, "prev_close": prev_close, "open": o,
         "high": max(o, close) if high is None else high, "low": min(o, close) if low is None else low,
         "close": close, "volume_shares": volume, "amount_cny": volume * close,
-        "is_risk_warning": "ST" in name, "is_delisting_period": name.endswith("退"),
-        "listing_day_marker": name[:1] in ("N", "C") and not name[1:2].isascii(),
+        "is_risk_warning": is_risk_warning(name), "is_delisting_period": is_delisting_period(name),
+        "listing_day_marker": is_listing_day_marker(name),
         "is_suspended": volume == 0,
         "event_time": datetime.combine(d, dtime(15), TZ), "available_at": datetime.combine(d, dtime(20), TZ),
         "source": "SYNTHETIC",

@@ -11,6 +11,8 @@
 | [`docs/DATA_AUDIT.md`](docs/DATA_AUDIT.md) | 逐数据源:覆盖、单位、已做验证、缺失 |
 | [`docs/LEAKAGE_AUDIT.md`](docs/LEAKAGE_AUDIT.md) | 逐类特征的 available_at 依据、切分与执行限制 |
 | [`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md) | 已完成 / 待办 / 下一步 |
+| [`docs/RESULTS_eod_v1.md`](docs/RESULTS_eod_v1.md) | **研究结果**:训练期推导的规则、验证期与一次性盲测 |
+| [`docs/PREREGISTRATION_eod_v1.md`](docs/PREREGISTRATION_eod_v1.md) | 揭盲前写定的检验与预期 |
 
 ## 和 Vibe-Research 的关系
 
@@ -42,7 +44,8 @@ python -m ashare_lab sectors                    # 申万 2021 行业个股归属
 python -m ashare_lab ingest                     # 通达信盘后包 2024-07-01 ~ 2026-10-16,可断点续传
 python -m ashare_lab quality --crosscheck-date 2026-10-16   # 覆盖率 / 一致性 / 与东财涨停池核对
 python -m ashare_lab build                      # 特征表 + 标签表(分开存)
-python -m ashare_lab experiment                 # M0 / M1 训练 + 验证期评估与代理回测(不碰盲测期)
+python -m ashare_lab experiment                 # 训练期推导规则 + M1 训练,验证期评估与代理回测(不碰盲测期)
+python -m ashare_lab lock && python -m ashare_lab blind     # 锁定后只评估一次盲测期
 python -m ashare_lab freeze --signal-date 2026-10-16        # D 日冻结票池 JSON
 python -m pytest ashare_lab/tests -q            # 红线与单元测试(合成夹具)
 ```
@@ -67,7 +70,9 @@ ashare_lab/
   rules/                  按日期生效的涨跌幅与费率、日频代理成交(T+1 / 一字 / 跌停)
   features/               涨跌停事件、个股特征、市场广度与连板梯队
   labels.py               标签(独立于特征)
-  candidates/modes.py     五模式入池条件与 M0 打分(占位规则,待 R1 替换)
+  candidates/modes.py     五模式基础池(结构定义)
+  evaluation/rule_mining.py      从训练期数据推导 M0 规则
+  evaluation/stats.py            按交易日分块的自助法置信区间
   candidates/freeze.py    D 日冻结票池、T 日 9:25 二阶段过滤
   evaluation/split.py     切分、purge / embargo、训练期标准化器、盲测锁
   evaluation/models.py    M1:逻辑回归 / LightGBM,stock vs full 消融
@@ -81,6 +86,6 @@ ashare_lab/
 - 日线只能判断收盘封板与盘中触板;开板次数、首封时间为 UNKNOWN。
 - 没有历史股本:换手率、流通市值类特征整体关闭。
 - 板块:只用申万 2021 一级行业;概念板块没有历史快照证据前不使用。
-- 五个模式的入池与退出是**占位规则**,不是使用者的 R1;拿到 R1 前的收益数字只用于验证管线。
+- 五个模式的基础池按方案的结构定义;池内排序规则从训练期数据推导(DATA_R0_v1)。退出规则(次日开盘 / 5 日 + 5% 止损)是固定设定,未优化。
 - 9:25 竞价只有 schema 与过滤接口,没有数据源;缺数据时输出 `NO_AUCTION_DATA`。
 - 代理回测(`proxy_daily_only`)只检验信号方向,**不代表 9:25 之后真的能成交**。

@@ -25,6 +25,15 @@ def test_limit_rounding_half_up():
     assert limit_band(10.0, "main", False, date(2025, 1, 2), listed_trading_days=6).up == 11.0
 
 
+def test_delisting_period_first_day_has_no_limit():
+    days = weekdays(date(2025, 6, 2), 3)
+    rows = [bar(days[0], "600001.SH", 1.0, 0.95, name="*ST测试"), bar(days[1], "600001.SH", 0.95, 0.30, name="退市测试"),
+            bar(days[2], "600001.SH", 0.30, 0.27, name="退市测试")]
+    ev = add_limit_events(pd.DataFrame(rows)).set_index("trade_date")
+    assert pd.isna(ev.loc[days[1], "up_limit"])  # 整理期首日无涨跌幅
+    assert ev.loc[days[2], "down_limit"] == 0.27  # 之后恢复 ±10%
+
+
 def test_fees_by_trade_date():
     fm = FeeModel()
     before, after = fm.cost(date(2023, 8, 25), "sell", 100_000), fm.cost(date(2023, 8, 28), "sell", 100_000)
