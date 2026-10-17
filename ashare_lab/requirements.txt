@@ -1,0 +1,11 @@
+# A-Structure Lab 额外依赖(取数层依赖见 .agents/skills/data-access/scripts/requirements.txt)
+pandas>=2.2
+numpy>=1.26
+pyarrow>=15
+duckdb>=1.0
+pyyaml>=6
+scikit-learn>=1.4
+lightgbm>=4.0
+requests>=2.31
+akshare>=1.12
+pytest>=8

@@ -1,0 +1,83 @@
+project: ashare_structure_lab
+experiment_id: eod_v1
+asof_timezone: Asia/Shanghai
+
+data:
+  # 原始包、归一化表、DuckDB 都在这里;默认 <仓库>/.local/ashare_lab(已被 git 忽略)。
+  # 环境变量 ASHARE_LAB_DATA 可覆盖。
+  root: null
+  daily_provider: tdx_package
+  calendar_provider: sina
+  # 拉取起点早于训练起点,给 60 日窗口特征留预热。
+  ingest_start: '2024-07-01'
+  ingest_end: '2026-10-16'
+  # 通达信盘后包当日何时可用没有官方时间戳,按保守假设:收盘当日 20:00 后才算可见。
+  tdx_available_at_local_time: '20:00:00'
+
+universe:
+  exchanges: [SSE, SZSE]
+  market: main_board
+  exclude_risk_warning: true
+  exclude_delisting_period: true
+  exclude_suspended: true
+  include_historical_delisted_before_delist_date: true
+  exclude_ipo_first_n_trading_days: 5
+  exclude_nonstandard_limit_days: true
+
+snapshots:
+  d_postclose: '21:00:00'
+  freeze_deadline_t: '09:14:59'
+  auction_underlying_event: '09:25:00'
+  auction_earliest_observed: '09:26:00'
+  never_use_preopen_auction_path: true
+
+features:
+  sequence_length: 60
+  horizons_trading_days: [1, 3, 5]
+  price_source_for_execution: raw_unadjusted
+  # v0.1 暂无历史股本,换手率 / 流通市值类特征整体去掉(不是填 0)。
+  disabled_feature_groups: [turnover_rate, market_cap]
+
+split:
+  # 两年窗口(用户决定):训练 12 个月、验证 6 个月、盲测约 6.5 个月。
+  train: ['2024-10-08', '2025-09-30']
+  validation: ['2025-10-09', '2026-03-31']
+  blind_test: ['2026-04-01', '2026-10-16']
+  embargo_trading_days: 10
+  blind_test_locked: true
+
+models:
+  baseline: [logistic_regression, lightgbm]
+  temporal: temporal_cnn
+  cross_asset:
+    enabled: false   # 两年样本不足以可信地训练,见 docs/FEASIBILITY.md
+
+pool:
+  max_candidates_per_mode: 2
+  modes: [A, B, C, D, E]
+  active_slot:
+    max_equity_pct: 50
+    competing_modes: [A, B, D]
+    max_new_names_per_day: 1
+  core_slot:
+    max_equity_pct: 50
+    modes: [C, E]
+  no_intraday_pool_additions: true
+
+risk_example_not_mandatory:
+  max_risk_per_trade_equity_pct: 0.5
+  max_new_risk_per_day_equity_pct: 1.5
+
+execution:
+  mode: proxy_daily_only
+  requires_real_auction_for_auction_filter: true
+  requires_minute_data_for_tradable_backtest: true
+  t_plus_one: true
+  buy_lot_shares: 100
+  optimistic_fill_from_limit_locked: false
+  slippage_bps: 10
+
+report:
+  always_label_proxy_nontradable: true
+  include_unfilled_count: true
+  include_data_coverage: true
