@@ -52,6 +52,12 @@ def main(argv: list[str] | None = None) -> int:
     au.add_argument("--date", required=True)
     au.add_argument("--file", default=None, help="9:25 最终竞价记录 JSON;不给则全部记 NO_AUCTION_DATA")
     sub.add_parser("paper", help="重放纸面账本,写 status.md")
+    sub.add_parser("structure", help="v2:计算情绪周期、主线、龙头(缓存到 structure/)")
+    h2 = sub.add_parser("history-v2", help="v2 交易系统历史完整模拟")
+    h2.add_argument("--start", required=True)
+    h2.add_argument("--end", required=True)
+    rv2 = sub.add_parser("review-v2", help="v2 交易者视角单日复盘")
+    rv2.add_argument("--date", required=True)
     rv = sub.add_parser("review", help="单日复盘:信号日 D 的计划、T 日执行到卖出、事后诊断")
     rv.add_argument("--date", required=True)
     q = sub.add_parser("quality", help="数据覆盖率与一致性报告")
@@ -136,6 +142,19 @@ def main(argv: list[str] | None = None) -> int:
         from .system.daily import run_auction
 
         print(run_auction(cfg, _d(args.date), Path(args.file) if args.file else None))
+    elif args.cmd == "structure":
+        from .system.strategy_v2 import build_structure
+
+        print(build_structure(cfg))
+    elif args.cmd == "history-v2":
+        from .system.strategy_v2 import history_v2
+
+        h = history_v2(cfg, _d(args.start), _d(args.end))
+        print(json.dumps(h["metrics"], ensure_ascii=False, indent=2, default=str))
+    elif args.cmd == "review-v2":
+        from .system.review_v2 import review_day_v2
+
+        print(review_day_v2(cfg, _d(args.date)))
     elif args.cmd == "review":
         from .system.review import review_day
 

@@ -22,6 +22,7 @@ from ..rules.fees import FeeModel
 from ..rules.limits import LimitBand
 
 HOLD_DAYS = {"A": 1, "B": 1, "D": 1, "C": 5, "E": 5}
+MAX_EXTEND = 5
 STOP_PCT = {"C": 0.05, "E": 0.05}
 LABEL = "proxy_daily_only:日频理想化代理,不代表 9:25 之后可成交"
 
@@ -37,6 +38,8 @@ class Position:
     buy_fee: float
     exit_due: date
     stop: float | None
+    extend_on_lu: bool = False
+    extensions: int = 0
 
 
 @dataclass
@@ -61,7 +64,10 @@ def _bars(feats: pd.DataFrame) -> dict[tuple[date, str], Bar]:
 
 def run(picks: pd.DataFrame, feats: pd.DataFrame, cal: TradingCalendar, start: date, end: date, *,
         capital: float = 1_000_000, position_pct: float = 0.10, slot_cap: float = 0.50,
-        slippage_bps: float = 10.0, fees: FeeModel | None = None) -> BacktestResult:
+        slippage_bps: float = 10.0, fees: FeeModel | None = None,
+        hold_rules: dict[str, dict] | None = None) -> BacktestResult:
+    """hold_rules:按模式覆盖退出规则 {mode: {"hold": 天, "stop": 比例或 None, "extend_on_lu": 是否涨停续持}};
+    涨停续持 = 到期日前一天收盘仍封涨停就顺延一天(最多 MAX_EXTEND 次),即「不再涨停的次日开盘卖」。"""
     bars = _bars(feats[(feats["trade_date"] >= start)])
     broker = Broker(cash=capital, fees=fees or FeeModel(), slippage_bps=slippage_bps)
     days = [d for d in cal.between(start, end)]
@@ -84,6 +90,15 @@ def run(picks: pd.DataFrame, feats: pd.DataFrame, cal: TradingCalendar, start: d
             fill = None
             if p.stop is not None and t > p.entry_date and t < p.exit_due:
                 fill = broker.stop_loss(p.ts_code, bar, p.stop)
+            if fill is None and t >= p.exit_due and p.extend_on_lu and p.extensions < MAX_EXTEND:
+                try:
+                    yb = bars.get((cal.prev(t), p.ts_code))
+                except (IndexError, KeyError):
+                    yb = None
+                if yb is not None and yb.band.has_limit and abs(yb.close - (yb.band.up or 0)) < 1e-6:
+                    p.exit_due = cal.next(t) if t < days[-1] else t
+                    p.extensions += 1
+                    continue
             if fill is None and t >= p.exit_due:
                 fill = broker.sell_at_open(p.ts_code, bar)
             if fill is not None:
@@ -116,13 +131,16 @@ def run(picks: pd.DataFrame, feats: pd.DataFrame, cal: TradingCalendar, start: d
             fill = broker.buy_at_open(r.ts_code, bar, min(budget, room))
             if fill is None:
                 continue
-            hold = HOLD_DAYS[r.mode]
+            rule = (hold_rules or {}).get(r.mode, {})
+            hold = rule.get("hold", HOLD_DAYS[r.mode])
             try:
                 due = cal.shift(t, hold)
             except IndexError:
                 due = days[-1]
-            stop = fill.price * (1 - STOP_PCT[r.mode]) if r.mode in STOP_PCT else None
-            positions.append(Position(r.ts_code, r.mode, r.slot, t, fill.price, fill.shares, fill.fee, due, stop))
+            stop_pct = rule["stop"] if "stop" in rule else STOP_PCT.get(r.mode)
+            stop = fill.price * (1 - stop_pct) if stop_pct else None
+            positions.append(Position(r.ts_code, r.mode, r.slot, t, fill.price, fill.shares, fill.fee, due, stop,
+                                      bool(rule.get("extend_on_lu", False))))
         # 3. 盯市
         for p in positions:
             bar = bars.get((t, p.ts_code))

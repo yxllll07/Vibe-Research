@@ -94,8 +94,8 @@ def normalize(raw: pd.DataFrame, fetched_at: str) -> pd.DataFrame:
     return out.reset_index(drop=True)
 
 
-def daily_l1(members: pd.DataFrame, panel_keys: pd.DataFrame) -> pd.Series:
-    """给 (trade_date, ts_code) 面板逐行查当日有效、当时已知的一级行业;查不到为 NA。"""
+def daily_l1(members: pd.DataFrame, panel_keys: pd.DataFrame, level: str = "sw_l1") -> pd.Series:
+    """给 (trade_date, ts_code) 面板逐行查当日有效、当时已知的行业(level = sw_l1 / sw_l2 / sector_id);查不到为 NA。"""
     m = members.sort_values("effective_from")
     keys = panel_keys[["trade_date", "ts_code"]].copy()
     keys["_d"] = pd.to_datetime(keys["trade_date"])
@@ -105,5 +105,5 @@ def daily_l1(members: pd.DataFrame, panel_keys: pd.DataFrame) -> pd.Series:
     valid = merged["_to"].isna() | (merged["_d"] < merged["_to"])
     # 以 D 日收盘后决策:first_known_at 须不晚于 D 日 21:00
     known = merged["first_known_at"] <= (merged["_d"] + pd.Timedelta(hours=21)).dt.tz_localize(TZ)
-    merged["sw_l1"] = merged["sw_l1"].where(valid & known)
-    return merged.set_index("index")["sw_l1"].reindex(panel_keys.index)
+    merged[level] = merged[level].where(valid & known)
+    return merged.set_index("index")[level].reindex(panel_keys.index)

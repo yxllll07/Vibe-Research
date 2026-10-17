@@ -165,7 +165,7 @@ def review_day(cfg: Config, d: date) -> Path:
 
     lu = tday[tday["limit_up_close"].astype(bool) & tday["eligible"].astype(bool)]
     L += ["## 4. T 日涨停股:我们能不能事前抓到", "", f"T 日主板非 ST 收盘涨停 {len(lu)} 只。按 D 日情况分类:", ""]
-    rows = []
+    rows: list[tuple] = []
     for code in lu.index:
         if code not in day.index:
             rows.append(("D 日无行情", code, "", []))
