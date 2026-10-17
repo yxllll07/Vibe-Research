@@ -41,6 +41,17 @@ def main(argv: list[str] | None = None) -> int:
     fz.add_argument("--signal-date", required=True)
     fz.add_argument("--score", default="m1_gbm_full", help="m0 / m1_logit_stock / m1_logit_full / m1_gbm_stock / m1_gbm_full")
     fz.add_argument("--replay", action="store_true", help="历史复现:freeze_at 记为 D 日 21:00 并打标")
+    sf = sub.add_parser("system-fit", help="交易系统 v1:从训练期固化策略定义 strategy.json")
+    sf.add_argument("--run", default=None, help="提供训练期规则的实验目录,默认最新一次")
+    sh = sub.add_parser("system-history", help="交易系统 v1 的历史完整模拟")
+    sh.add_argument("--start", required=True)
+    sh.add_argument("--end", required=True)
+    dy = sub.add_parser("daily", help="D 日盘后:补数据 → 重建特征 → 冻结 T 日计划 → 重放纸面账本")
+    dy.add_argument("--date", required=True)
+    au = sub.add_parser("auction", help="T 日 9:26 后:冻结名单内的竞价二次过滤")
+    au.add_argument("--date", required=True)
+    au.add_argument("--file", default=None, help="9:25 最终竞价记录 JSON;不给则全部记 NO_AUCTION_DATA")
+    sub.add_parser("paper", help="重放纸面账本,写 status.md")
     q = sub.add_parser("quality", help="数据覆盖率与一致性报告")
     q.add_argument("--start", default=None)
     q.add_argument("--end", default=None)
@@ -101,6 +112,34 @@ def main(argv: list[str] | None = None) -> int:
         from .candidates.freeze_job import freeze
 
         print(freeze(cfg, _d(args.signal_date), args.score, replay=args.replay))
+    elif args.cmd == "system-fit":
+        from pathlib import Path
+
+        from .candidates.freeze_job import latest_run
+        from .system.strategy import fit_strategy
+
+        print(fit_strategy(cfg, Path(args.run) if args.run else latest_run(cfg)))
+    elif args.cmd == "system-history":
+        from .system.daily import history
+
+        h = history(cfg, _d(args.start), _d(args.end))
+        print(json.dumps(h["metrics"], ensure_ascii=False, indent=2, default=str))
+    elif args.cmd == "daily":
+        from .system.daily import run_daily
+
+        print(json.dumps(run_daily(cfg, _d(args.date)), ensure_ascii=False, indent=2))
+    elif args.cmd == "auction":
+        from pathlib import Path
+
+        from .system.daily import run_auction
+
+        print(run_auction(cfg, _d(args.date), Path(args.file) if args.file else None))
+    elif args.cmd == "paper":
+        from .data.calendar import TradingCalendar
+        from .data.ingest import calendar_path
+        from .system.daily import _load_feats, paper_status
+
+        print(paper_status(cfg, _load_feats(cfg), TradingCalendar.load(calendar_path(cfg.data_root))))
     elif args.cmd == "quality":
         from .data.quality import run_quality
 

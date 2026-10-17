@@ -11,6 +11,7 @@
 | [`docs/DATA_AUDIT.md`](docs/DATA_AUDIT.md) | 逐数据源:覆盖、单位、已做验证、缺失 |
 | [`docs/LEAKAGE_AUDIT.md`](docs/LEAKAGE_AUDIT.md) | 逐类特征的 available_at 依据、切分与执行限制 |
 | [`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md) | 已完成 / 待办 / 下一步 |
+| [`docs/SYSTEM_v1.md`](docs/SYSTEM_v1.md) | **交易系统 v1**:策略定义、每日运行、纸面账本 |
 | [`docs/RESULTS_eod_v1.md`](docs/RESULTS_eod_v1.md) | **研究结果**:训练期推导的规则、验证期与一次性盲测 |
 | [`docs/PREREGISTRATION_eod_v1.md`](docs/PREREGISTRATION_eod_v1.md) | 揭盲前写定的检验与预期 |
 
@@ -47,6 +48,9 @@ python -m ashare_lab build                      # 特征表 + 标签表(分开�
 python -m ashare_lab experiment                 # 训练期推导规则 + M1 训练,验证期评估与代理回测(不碰盲测期)
 python -m ashare_lab lock && python -m ashare_lab blind     # 锁定后只评估一次盲测期
 python -m ashare_lab freeze --signal-date 2026-10-16        # D 日冻结票池 JSON
+python -m ashare_lab system-fit                 # 交易系统 v1:从训练期固化策略定义
+ashare_lab/scripts/daily.sh 2026-10-16          # 盘后日常:补数据 → 冻结 T 日计划 → 纸面账本
+python -m ashare_lab auction --date 2026-10-19 --file 竞价.json   # T 日竞价二次过滤(可选)
 python -m pytest ashare_lab/tests -q            # 红线与单元测试(合成夹具)
 ```
 

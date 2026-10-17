@@ -10,6 +10,8 @@
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 import pandas as pd
 from sklearn.mixture import GaussianMixture
@@ -25,14 +27,33 @@ MIN_STATE_DAYS = 15
 TOP_N = 5
 
 
-def fit_states(market: pd.DataFrame, train_end) -> tuple[pd.Series, pd.DataFrame]:
+@dataclass
+class RegimeModel:
+    """训练期拟合的状态模型;predict 只用传入日期当天的市场特征。"""
+    mu: pd.Series
+    sd: pd.Series
+    gmm: GaussianMixture
+    train_end: object
+
+    def predict(self, market: pd.DataFrame) -> pd.Series:
+        m = market.set_index("trade_date")[MARKET_FEATURES].astype(float).replace([np.inf, -np.inf], np.nan)
+        z = ((m - self.mu) / self.sd).fillna(0).clip(-5, 5)
+        return pd.Series(self.gmm.predict(z.to_numpy()), index=z.index, name="state")
+
+
+def fit_model(market: pd.DataFrame, train_end) -> RegimeModel:
     m = market.set_index("trade_date")[MARKET_FEATURES].astype(float).replace([np.inf, -np.inf], np.nan)
     tr = m[m.index <= train_end]
     mu, sd = tr.mean(), tr.std().replace(0, 1)
-    z = ((m - mu) / sd).fillna(0).clip(-5, 5)
     gmm = GaussianMixture(n_components=K, covariance_type="diag", random_state=SEED, n_init=5)
-    gmm.fit(z[z.index <= train_end])
-    state = pd.Series(gmm.predict(z), index=z.index, name="state")
+    gmm.fit(((tr - mu) / sd).fillna(0).clip(-5, 5).to_numpy())
+    return RegimeModel(mu, sd, gmm, train_end)
+
+
+def fit_states(market: pd.DataFrame, train_end) -> tuple[pd.Series, pd.DataFrame]:
+    model = fit_model(market, train_end)
+    m = market.set_index("trade_date")[MARKET_FEATURES].astype(float)
+    state = model.predict(market)
     profile = m.assign(state=state)[m.index <= train_end].groupby("state")[
         ["mkt_limit_up", "mkt_broke_rate", "mkt_promo_1to2", "mkt_max_height", "mkt_up_ratio", "mkt_amount_chg_5"]].mean()
     profile["train_days"] = state[state.index <= train_end].value_counts().sort_index()
