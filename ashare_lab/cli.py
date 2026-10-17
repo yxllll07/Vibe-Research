@@ -58,6 +58,17 @@ def main(argv: list[str] | None = None) -> int:
     h2.add_argument("--end", required=True)
     rv2 = sub.add_parser("review-v2", help="v2 交易者视角单日复盘")
     rv2.add_argument("--date", required=True)
+    p3 = sub.add_parser("plan-v3", help="v3:D 日晚冻结预选池并给出 T 日预期")
+    p3.add_argument("--date", required=True)
+    p3.add_argument("--replay", action="store_true", help="历史复现:freeze_at 记为 D 日 21:00 并打标")
+    a3 = sub.add_parser("auction-v3", help="v3:T 日 9:26 后只抓预选池内竞价,取第一只可买的")
+    a3.add_argument("--date", required=True)
+    a3.add_argument("--file", default=None, help="9:25 最终竞价记录 JSON;不给则实时抓池内腾讯行情")
+    a3.add_argument("-n", type=int, default=1, help="买几只")
+    h3 = sub.add_parser("history-v3", help="v3 历史重放:T 日开盘买入当天收涨率")
+    h3.add_argument("--start", required=True)
+    h3.add_argument("--end", required=True)
+    h3.add_argument("-n", type=int, default=1, help="每天买几只")
     rv = sub.add_parser("review", help="单日复盘:信号日 D 的计划、T 日执行到卖出、事后诊断")
     rv.add_argument("--date", required=True)
     q = sub.add_parser("quality", help="数据覆盖率与一致性报告")
@@ -155,6 +166,21 @@ def main(argv: list[str] | None = None) -> int:
         from .system.review_v2 import review_day_v2
 
         print(review_day_v2(cfg, _d(args.date)))
+    elif args.cmd == "plan-v3":
+        from .system.strategy_v3 import write_plan
+
+        print(write_plan(cfg, _d(args.date), replay=args.replay))
+    elif args.cmd == "auction-v3":
+        from pathlib import Path
+
+        from .system.strategy_v3 import run_auction as run_auction_v3
+
+        print(run_auction_v3(cfg, _d(args.date), Path(args.file) if args.file else None, n=args.n))
+    elif args.cmd == "history-v3":
+        from .system.strategy_v3 import history_v3
+
+        h = history_v3(cfg, _d(args.start), _d(args.end), n=args.n)
+        print(json.dumps(h["metrics"], ensure_ascii=False, indent=2, default=str))
     elif args.cmd == "review":
         from .system.review import review_day
 
