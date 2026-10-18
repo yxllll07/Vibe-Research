@@ -30,21 +30,32 @@ EXPECT: dict[str, tuple[str, tuple[str, ...]]] = {
     "高潮": ("易转分歧,不开仓", ()),
     "分歧": ("方向不明,不开仓", ()),
 }
+# v4 = v3 + 分歧日也做 B 首板接力(复盘 6-23、6-26 发现分歧次日主线首板并不差)。
+# 只改这一格:新增的 84 个分歧日里排第一的 B 当天收涨率 训练 62% / 验证 50% / 留出 65%,三段都高于同期全市场(46% ~ 48%)。
+# 同时试过但没采用:分歧做 E / 分歧做 C、发酵做 A / 发酵做 C、修复日按竞价调整 A / B 顺序 —— 至少一段明显变差或只是噪声。
+EXPECT_V4: dict[str, tuple[str, tuple[str, ...]]] = {
+    **EXPECT,
+    "分歧": ("市场整体弱,主线首板常有回流", ("B",)),
+}
+RULESETS: dict[str, tuple[str, dict[str, tuple[str, tuple[str, ...]]]]] = {
+    "v3": (RULE_VERSION, EXPECT),
+    "v4": ("EXPECT_v4", EXPECT_V4),
+}
 MODE_PRIORITY = {"B": 0, "A": 1}
 
 
-def allowed_modes(stage: str) -> tuple[str, ...]:
-    return EXPECT.get(stage, ("未知阶段", ()))[1]
+def allowed_modes(stage: str, rules: str = "v3") -> tuple[str, ...]:
+    return RULESETS[rules][1].get(stage, ("未知阶段", ()))[1]
 
 
-def preselect(c: pd.DataFrame, k: int = 10) -> pd.DataFrame:
+def preselect(c: pd.DataFrame, k: int = 10, rules: str = "v3") -> pd.DataFrame:
     """c:modes_v2.candidates 的输出。返回每个信号日按优先级排好的预选池(每日最多 k 只,一只票只保留优先级最高的模式)。"""
-    ok = c[[m in allowed_modes(s) for m, s in zip(c["mode"], c["stage"])]].copy()
+    ok = c[[m in allowed_modes(s, rules) for m, s in zip(c["mode"], c["stage"])]].copy()
     ok["pri"] = ok["mode"].map(MODE_PRIORITY)
     ok = ok.sort_values(["trade_date", "pri", "score", "ts_code"], ascending=[True, True, False, True])
     ok = ok.drop_duplicates(["trade_date", "ts_code"])
     ok["order"] = ok.groupby("trade_date").cumcount() + 1
-    ok["rule_version"] = RULE_VERSION
+    ok["rule_version"] = RULESETS[rules][0]
     return ok[ok["order"] <= k].drop(columns="pri").reset_index(drop=True)
 
 

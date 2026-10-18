@@ -39,3 +39,12 @@ def test_auction_pick_skips_limit_up_and_suspended():
     res = modes_v3.auction_pick(pool, {"a": 11.0, "c": 10.5, "d": 10.2}, {"a": 11.0, "b": 11.0, "c": 11.0, "d": 11.0}, n=1)
     assert res.set_index("ts_code")["buy"].to_dict() == {"a": False, "b": False, "c": True, "d": False}
     assert "涨停" in res.loc[0, "skip_reason"] and "停牌" in res.loc[1, "skip_reason"]
+
+
+def test_v4_only_adds_b_on_divergence_and_keeps_v3_frozen():
+    from ashare_lab.structure.sentiment import STAGES
+
+    for s in STAGES:
+        v3, v4 = modes_v3.allowed_modes(s, "v3"), modes_v3.allowed_modes(s, "v4")
+        assert v4 == (("B",) if s == "分歧" else v3)
+    assert modes_v3.allowed_modes("分歧", "v3") == ()

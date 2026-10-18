@@ -27,38 +27,43 @@ SUCCESS_MARGIN = 0.0015  # 收盘高于开盘 0.15% 以上(约等于双边费用
 QUOTE_URL = "https://qt.gtimg.cn/q="
 
 
-def plans_root(cfg: Config) -> Path:
-    return cfg.data_root / "system" / "strategy_v3" / "plans"
+DEFAULT_RULES = "v4"
 
 
-def preselect_day(panel: pd.DataFrame, d: date) -> tuple[str, pd.DataFrame]:
+def plans_root(cfg: Config, rules: str = DEFAULT_RULES) -> Path:
+    return cfg.data_root / "system" / f"strategy_{rules}" / "plans"
+
+
+def preselect_day(panel: pd.DataFrame, d: date, rules: str = DEFAULT_RULES) -> tuple[str, pd.DataFrame]:
     day = panel[panel["trade_date"] == d]
     if day.empty:
         raise RuntimeError(f"没有 {d} 的特征,先跑 build / structure")
     stage = str(day["stage"].iloc[0])
-    pool = modes_v3.preselect(modes_v2.candidates(day))
+    pool = modes_v3.preselect(modes_v2.candidates(day), rules=rules)
     pool = pool.merge(day[["ts_code", "name", "close", "board", "is_risk_warning", "sw_l2", "role", "limit_streak", "ret_1"]],
                       on="ts_code", how="left")
     return stage, pool
 
 
-def write_plan(cfg: Config, d: date, panel: pd.DataFrame | None = None, replay: bool = False) -> Path:
+def write_plan(cfg: Config, d: date, panel: pd.DataFrame | None = None, replay: bool = False,
+               rules: str = DEFAULT_RULES) -> Path:
     panel = load_panel(cfg) if panel is None else panel
     cal = TradingCalendar.load(calendar_path(cfg.data_root))
     t = cal.next(d)
-    stage, pool = preselect_day(panel, d)
-    expect, modes = modes_v3.EXPECT.get(stage, ("未知阶段", ()))
+    stage, pool = preselect_day(panel, d, rules)
+    version, table = modes_v3.RULESETS[rules]
+    expect, modes = table.get(stage, ("未知阶段", ()))
     cands = []
     for r in pool.itertuples(index=False):
         band = limit_band(float(r.close), r.board, bool(r.is_risk_warning), t)
         cands.append({"order": int(r.order), "ts_code": r.ts_code, "name": r.name, "mode": r.mode, "score": round(float(r.score), 4),
                       "d_close": float(r.close), "t_up_limit": band.up, "sw_l2": r.sw_l2, "role": r.role,
                       "limit_streak": int(r.limit_streak), "d_ret": round(float(r.ret_1), 4)})
-    doc = {"rule_version": modes_v3.RULE_VERSION, "signal_date": str(d), "target_date": str(t), "d_stage": stage,
+    doc = {"rule_version": version, "signal_date": str(d), "target_date": str(t), "d_stage": stage,
            "t_expectation": expect, "allowed_modes": list(modes),
            "freeze_at": (datetime.combine(d, dtime(21, 0), TZ) if replay else datetime.now(TZ)).isoformat(),
            "historical_replay": replay, "candidates": cands}
-    out_dir = plans_root(cfg) / f"{d:%Y%m%d}"
+    out_dir = plans_root(cfg, rules) / f"{d:%Y%m%d}"
     out_dir.mkdir(parents=True, exist_ok=True)
     n = len(list(out_dir.glob("plan.v*.json"))) + 1
     out = out_dir / f"plan.v{n}.json"
@@ -68,7 +73,7 @@ def write_plan(cfg: Config, d: date, panel: pd.DataFrame | None = None, replay: 
 
 
 def render_plan(doc: dict) -> str:
-    L = [f"# v3 交易计划:信号日 {doc['signal_date']} → 执行日 {doc['target_date']}", "",
+    L = [f"# {doc['rule_version']} 交易计划:信号日 {doc['signal_date']} → 执行日 {doc['target_date']}", "",
          f"- D 日情绪阶段:**{doc['d_stage']}**;T 日预期:{doc['t_expectation']}",
          f"- 允许开盘买入的模式:{'、'.join(f'{m} {MODE_NAMES[m]}' for m in doc['allowed_modes']) or '无(空仓)'}", ""]
     if doc["candidates"]:
@@ -80,8 +85,8 @@ def render_plan(doc: dict) -> str:
     return "\n".join(L) + "\n"
 
 
-def latest_plan(cfg: Config, d: date) -> dict:
-    files = sorted((plans_root(cfg) / f"{d:%Y%m%d}").glob("plan.v*.json"), key=lambda p: int(p.stem.split(".v")[1]))
+def latest_plan(cfg: Config, d: date, rules: str = DEFAULT_RULES) -> dict:
+    files = sorted((plans_root(cfg, rules) / f"{d:%Y%m%d}").glob("plan.v*.json"), key=lambda p: int(p.stem.split(".v")[1]))
     if not files:
         raise RuntimeError(f"没有信号日 {d} 的 v3 计划,先跑 plan-v3 --date {d}")
     return json.loads(files[-1].read_text(encoding="utf-8"))
@@ -109,11 +114,11 @@ def fetch_auction(codes: list[str], t: date, now: datetime | None = None) -> lis
     return recs
 
 
-def run_auction(cfg: Config, t: date, file: Path | None = None, n: int = 1) -> Path:
+def run_auction(cfg: Config, t: date, file: Path | None = None, n: int = 1, rules: str = DEFAULT_RULES) -> Path:
     cal = TradingCalendar.load(calendar_path(cfg.data_root))
-    plan = latest_plan(cfg, cal.prev(t))
+    plan = latest_plan(cfg, cal.prev(t), rules)
     pool = pd.DataFrame(plan["candidates"])
-    out_dir = plans_root(cfg) / plan["signal_date"].replace("-", "")
+    out_dir = plans_root(cfg, rules) / plan["signal_date"].replace("-", "")
     if pool.empty:
         out = out_dir / "auction.md"
         out.write_text(f"# {t} 竞价:D 日 {plan['d_stage']},{plan['t_expectation']},不开仓\n", encoding="utf-8")
@@ -144,14 +149,14 @@ def run_auction(cfg: Config, t: date, file: Path | None = None, n: int = 1) -> P
     return out
 
 
-def replay_picks(panel: pd.DataFrame, days: list[date], n: int = 1) -> pd.DataFrame:
+def replay_picks(panel: pd.DataFrame, days: list[date], n: int = 1, rules: str = DEFAULT_RULES) -> pd.DataFrame:
     """历史重放:T 日开盘价当作 9:25 竞价价,到涨停价 / 停牌跳过;返回每笔选中的票及当天开→收。"""
     p = panel.sort_values(["ts_code", "trade_date"])
     g = p.groupby("ts_code", sort=False)
     nxt = p.assign(t_date=g["trade_date"].shift(-1), t_open=g["open"].shift(-1), t_close=g["close"].shift(-1),
                    t_up=g["up_limit"].shift(-1))
     nxt = nxt[nxt["trade_date"].isin(days)].set_index(["trade_date", "ts_code"])
-    pool = modes_v3.preselect(modes_v2.candidates(panel[panel["trade_date"].isin(days)]))
+    pool = modes_v3.preselect(modes_v2.candidates(panel[panel["trade_date"].isin(days)]), rules=rules)
     rows = []
     for d, day_pool in pool.groupby("trade_date"):
         keys = [(d, c) for c in day_pool["ts_code"]]
@@ -171,18 +176,19 @@ def replay_picks(panel: pd.DataFrame, days: list[date], n: int = 1) -> pd.DataFr
     return out
 
 
-def history_v3(cfg: Config, start: date, end: date, n: int = 1, panel: pd.DataFrame | None = None) -> dict:
+def history_v3(cfg: Config, start: date, end: date, n: int = 1, panel: pd.DataFrame | None = None,
+               rules: str = DEFAULT_RULES) -> dict:
     panel = load_panel(cfg) if panel is None else panel
     cal = TradingCalendar.load(calendar_path(cfg.data_root))
     days = [x for x in cal.between(start, end) if x < end]
-    picks = replay_picks(panel, days, n=n)
+    picks = replay_picks(panel, days, n=n, rules=rules)
     # 对照:同期全市场(可交易、T 日非一字、非开盘涨停)开盘买入的当天收涨率
     p = panel.sort_values(["ts_code", "trade_date"])
     g = p.groupby("ts_code", sort=False)
     m = p.assign(t_open=g["open"].shift(-1), t_close=g["close"].shift(-1), t_up=g["up_limit"].shift(-1))
     m = m[m["trade_date"].isin(days) & m["eligible"].astype(bool) & (m["t_open"] > 0) & ((m["t_open"] - m["t_up"]).abs() > 1e-6)]
     base = float((m["t_close"] / m["t_open"] - 1 > SUCCESS_MARGIN).mean())
-    res: dict = {"rule_version": modes_v3.RULE_VERSION, "range": [str(start), str(end)], "picks_per_day": n,
+    res: dict = {"rule_version": modes_v3.RULESETS[rules][0], "range": [str(start), str(end)], "picks_per_day": n,
                  "signal_days": len(days), "market_close_up_rate": base,
                  "note": "开盘价近似 9:25 竞价价;收涨 = 收盘高于开盘 0.15% 以上"}
     if picks.empty:
