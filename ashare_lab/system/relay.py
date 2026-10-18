@@ -39,8 +39,10 @@ THEME = ["ml_score", "ml_rank", "heat", "lu5", "lu10", "anti5", "height", "amt_r
          "prev_role_i", "sent_score", "stage_i", "is_mainline", "is_space_leader"]
 D_FEATURES = list(dict.fromkeys(STOCK_FEATURES + SECTOR_FEATURES + MARKET_FEATURES + THEME + ["d_gap", "d_oc"]))
 FEATURES = D_FEATURES + ["gap"]
+# deterministic + force_row_wise + 固定 4 线程:同一份数据、同一 LightGBM 版本(4.7.0)在任何机器上训练出同一个模型
 PARAMS: dict[str, Any] = dict(n_estimators=250, learning_rate=0.05, num_leaves=31, min_child_samples=500, subsample=0.5,
-                              subsample_freq=1, colsample_bytree=0.7, random_state=7, verbose=-1)
+                              subsample_freq=1, colsample_bytree=0.7, random_state=7, verbose=-1,
+                              deterministic=True, force_row_wise=True, n_jobs=4)
 TOP_N = 5
 
 
