@@ -48,3 +48,17 @@ def test_v4_only_adds_b_on_divergence_and_keeps_v3_frozen():
         v3, v4 = modes_v3.allowed_modes(s, "v3"), modes_v3.allowed_modes(s, "v4")
         assert v4 == (("B",) if s == "分歧" else v3)
     assert modes_v3.allowed_modes("分歧", "v3") == ()
+
+
+def test_walkforward_refuses_future_outcomes():
+    import pytest
+
+    from ashare_lab.data.pit import LeakageError
+    from ashare_lab.evaluation.walkforward import learn_gates
+
+    hist = pd.DataFrame({"trade_date": [date(2026, 1, 5)], "t_date": [date(2026, 1, 6)], "ts_code": ["a"], "mode": ["B"],
+                         "stage": ["震荡"], "score": [1.0], "buyable": [True], "win": [True]})
+    market = pd.DataFrame({"trade_date": [date(2026, 1, 5)], "t_date": [date(2026, 1, 6)], "mkt_win": [0.5]})
+    learn_gates(hist, market, cutoff=date(2026, 1, 7))
+    with pytest.raises(LeakageError):
+        learn_gates(hist, market, cutoff=date(2026, 1, 6))  # T 日 = 截止日,当时还没收盘
