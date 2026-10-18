@@ -1,6 +1,7 @@
-"""竞价修复系统(RELAY_v1):全市场 9:25 竞价 + D 日数据,预测「T 开盘买、T+1 收盘卖仍赚钱」,每天取第一名。
+"""竞价修复系统(RELAY_v1):全市场 9:25 竞价 + D 日数据,预测「T 开盘买、T+1 收盘卖仍赚钱」,每天前 5 名等权买入。
 
-依据 docs/REALIZABLE.md 第 8 节:只用 D 日数据找不到接力票(AUC ≈ 0.51);加竞价跳空后每天第一名 2022 ~ 2026 每年为正。
+依据 docs/REALIZABLE.md 第 8 节:只用 D 日数据找不到接力票(AUC ≈ 0.51);加竞价跳空(相对 T 日参考价)后,
+每天前 5 名等权 2022 ~ 2026 每年为正(第一名单买 2024 年接近 0,所以用前 5 分散)。
 回测按开盘价成交,实盘看到竞价后只能 9:30 之后买,所以本系统同时记录 9:30 之后的可成交价,用前向数据检验买入价吃掉多少。
 
 每日流程(北京时间):
@@ -177,7 +178,7 @@ def pick(cfg: Config, t: date, replay: bool = False) -> Path:
     out.write_text(json.dumps(doc, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
     L = [f"# {RULE_VERSION} 选票:{t}(信号日 {d})", "",
          f"- 竞价行情 {len(auction)} / {len(snap)} 只;{'历史复现(开盘价当竞价价)' if replay else '实时 ' + observed.strftime('%H:%M:%S')}",
-         f"- 买入:第 1 名 9:30 后买入(第 1 名停牌 / 涨停买不到时顺延);卖出:{doc['exit_rule']}", "",
+         f"- 买入:前 5 名 9:30 后等权买入(单票不超过账户的 4%);卖出:{doc['exit_rule']}", "",
          "| 名次 | 代码 | 名称 | T 日参考价 | 竞价 | 跳空 | 分数 |", "|---|---|---|---|---|---|---|"]
     for r in top.itertuples(index=False):
         L.append(f"| {r.rank} | {r.ts_code} | {r.name} | {r.ref:.2f} | {r.auction_price:.2f} | {r.gap:+.2%} | {r.score:.3f} |")
@@ -209,47 +210,53 @@ def settle(cfg: Config) -> Path:
     rows = []
     for pj in sorted(root(cfg).glob("*/pick.json")):
         doc = json.loads(pj.read_text(encoding="utf-8"))
-        if not doc["picks"]:
-            continue
-        top = doc["picks"][0]
-        code, t = top["ts_code"], date.fromisoformat(doc["target_date"])
-        bars = f[(f["ts_code"] == code) & (f["trade_date"] >= t)].sort_values("trade_date").head(6).reset_index(drop=True)
-        fillp = None
-        if (pj.parent / "fill.json").exists():
-            fillp = json.loads((pj.parent / "fill.json").read_text(encoding="utf-8"))["prices"].get(code)
-        row: dict[str, Any] = {"target_date": str(t), "ts_code": code, "name": top["name"], "replay": doc["historical_replay"],
-                               "auction_price": top["auction_price"], "fill_0931": fillp}
-        if len(bars) >= 2 and bars.loc[0, "trade_date"] == t:
-            row["t_open"] = float(bars.loc[0, "open"])
-            exit_px, exit_d = None, None
-            c2, dn2 = bars.loc[1, "close"], bars.loc[1, "down_limit"]
-            if c2 > 0 and abs(c2 - dn2) > 1e-6:
-                exit_px, exit_d = float(c2), bars.loc[1, "trade_date"]
-            else:
-                for k in range(2, len(bars)):
-                    o, h, dn = bars.loc[k, "open"], bars.loc[k, "high"], bars.loc[k, "down_limit"]
-                    if o > 0 and not (abs(o - dn) < 1e-6 and abs(h - dn) < 1e-6):
-                        exit_px, exit_d = float(o), bars.loc[k, "trade_date"]
-                        break
-            if exit_px is not None:
-                cost = wf.cost_on(exit_d)
-                row.update({"exit_date": str(exit_d), "exit_price": exit_px,
-                            "ret_open": exit_px / row["t_open"] - 1 - cost,
-                            "ret_fill": (exit_px / fillp - 1 - cost) if fillp else None,
-                            "fill_vs_open": (fillp / row["t_open"] - 1) if fillp else None})
-        rows.append(row)
+        for top in doc["picks"][:TOP_N]:
+            rows.append(_settle_one(f, pj, doc, top))
     led = pd.DataFrame(rows)
     out = root(cfg) / "ledger.csv"
     out.parent.mkdir(parents=True, exist_ok=True)
     led.to_csv(out, index=False)
     done = led.dropna(subset=["ret_open"]) if "ret_open" in led else led.iloc[0:0]
     live = done[~done["replay"].astype(bool)] if len(done) else done
-    L = [f"# {RULE_VERSION} 台账", "", f"- 已结算 {len(done)} 笔(其中实时 {len(live)} 笔)"]
+    L = [f"# {RULE_VERSION} 台账(前 {TOP_N} 名等权)", "",
+         f"- 已结算 {len(done)} 笔 / {done['target_date'].nunique() if len(done) else 0} 天(其中实时 {len(live)} 笔)"]
     if len(done):
-        L.append(f"- 按开盘价:平均 {done['ret_open'].mean():+.2%},胜率 {(done['ret_open'] > 0).mean():.0%}")
+        day = done.groupby("target_date")["ret_open"].mean()
+        L.append(f"- 按开盘价:每笔平均 {done['ret_open'].mean():+.2%},胜率 {(done['ret_open'] > 0).mean():.0%};"
+                 f"按天(5 只等权)平均 {day.mean():+.2%},赚钱的天 {(day > 0).mean():.0%}")
     if len(live) and live["ret_fill"].notna().any():
         lf = live.dropna(subset=["ret_fill"])
-        L.append(f"- 按 9:31 价:平均 {lf['ret_fill'].mean():+.2%},胜率 {(lf['ret_fill'] > 0).mean():.0%};"
+        L.append(f"- 按 9:31 价:每笔平均 {lf['ret_fill'].mean():+.2%},胜率 {(lf['ret_fill'] > 0).mean():.0%};"
                  f"9:31 价比开盘价平均 {lf['fill_vs_open'].mean():+.2%}")
     (out.with_suffix(".md")).write_text("\n".join(L) + "\n", encoding="utf-8")
     return out.with_suffix(".md")
+
+
+def _settle_one(f: pd.DataFrame, pj: Path, doc: dict, top: dict) -> dict[str, Any]:
+    """单只选票:T 开盘(及 9:31 价)买入,T+1 收盘卖;收盘跌停或停牌顺延到之后第一个能卖的开盘。"""
+    code, t = top["ts_code"], date.fromisoformat(doc["target_date"])
+    bars = f[(f["ts_code"] == code) & (f["trade_date"] >= t)].sort_values("trade_date").head(6).reset_index(drop=True)
+    fillp = None
+    if (pj.parent / "fill.json").exists():
+        fillp = json.loads((pj.parent / "fill.json").read_text(encoding="utf-8"))["prices"].get(code)
+    row: dict[str, Any] = {"target_date": str(t), "ts_code": code, "name": top["name"], "replay": doc["historical_replay"],
+                           "auction_price": top["auction_price"], "fill_0931": fillp}
+    if len(bars) >= 2 and bars.loc[0, "trade_date"] == t:
+        row["t_open"] = float(bars.loc[0, "open"])
+        exit_px, exit_d = None, None
+        c2, dn2 = bars.loc[1, "close"], bars.loc[1, "down_limit"]
+        if c2 > 0 and abs(c2 - dn2) > 1e-6:
+            exit_px, exit_d = float(c2), bars.loc[1, "trade_date"]
+        else:
+            for k in range(2, len(bars)):
+                o, h, dn = bars.loc[k, "open"], bars.loc[k, "high"], bars.loc[k, "down_limit"]
+                if o > 0 and not (abs(o - dn) < 1e-6 and abs(h - dn) < 1e-6):
+                    exit_px, exit_d = float(o), bars.loc[k, "trade_date"]
+                    break
+        if exit_px is not None:
+            cost = wf.cost_on(exit_d)
+            row.update({"exit_date": str(exit_d), "exit_price": exit_px,
+                        "ret_open": exit_px / row["t_open"] - 1 - cost,
+                        "ret_fill": (exit_px / fillp - 1 - cost) if fillp else None,
+                        "fill_vs_open": (fillp / row["t_open"] - 1) if fillp else None})
+    return row
