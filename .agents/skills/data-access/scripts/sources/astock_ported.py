@@ -604,6 +604,18 @@ TDX_BJ_FIRST_DAY = "20220506"
 TDX_MIN_PRICED = {"sh": 10000, "sz": 3000, "bj": 50}
 
 
+def _tdx_name(raw: bytes) -> str:
+    """名称字段定长:超长名称(如上市首日带 N 的长名 REIT)会在双字节汉字中间被截断,只剩一个 GBK 前导字节。
+    只容忍这一种情况(去掉末尾那个孤立的前导字节);其他坏字节照样抛 UnicodeDecodeError。
+    不用 errors="replace":它会把坏字节变成「�」当成正常名称返回(11 个真实包实测零替换字符)。"""
+    try:
+        return raw.decode("gbk").strip()
+    except UnicodeDecodeError:
+        if raw and raw[-1] >= 0x81:
+            return raw[:-1].decode("gbk").strip()
+        raise
+
+
 def _tdx_parse_package(content, ymd):
     """解析通达信每日增量包：每个市场一对 .cod（代码表，150 字节/条）+ .md1（行情块，512 字节/块）。
     布局参考 jing2uo/tdx2db（MIT）的 tdx/merge.go，已用 600519/000001/920000 与腾讯收盘价对拍。"""
@@ -647,8 +659,8 @@ def _tdx_parse_package(content, ymd):
                 continue        # 880/881 等通达信自编板块指数当日无价，整块为 0，不是证券
             volume = struct.unpack("<Q", block[56:64])[0]
             raw_name = record[40:72].split(b"\x00")[0]
-            try:                # replace 会把坏字节变成「�」当成正常名称返回（11 个真实包实测零替换字符）
-                name = raw_name.decode("gbk").strip()
+            try:
+                name = _tdx_name(raw_name)
             except UnicodeDecodeError as exc:
                 raise RuntimeError(f"通达信盘后包 {market}{code} 的名称不是 GBK，文件可能已损坏") from exc
             if not name:

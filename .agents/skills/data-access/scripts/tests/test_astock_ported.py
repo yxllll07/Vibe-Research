@@ -477,3 +477,12 @@ def test_tdx_finance_map_reads_bvps_and_update_date(fake_tdx):
     res = mappers_cn.tdx_finance_map(snap, ctx)
     by = {e["field"]: e for e in res["evidence"]}
     assert by["bvps"]["value"] == 200.99 and by["bvps"]["period"] == "2026-08-15" and not res["missing"]
+
+
+def test_tdx_name_tolerates_only_a_truncated_trailing_lead_byte():
+    # 2022-10-13 sh508021「N国泰君安临港创新产业园」被定长字段截在汉字中间
+    raw = "N国泰君安临港创新产业".encode("gbk") + b"\xd4"
+    assert P._tdx_name(raw) == "N国泰君安临港创新产业"
+    assert P._tdx_name("浦发银行".encode("gbk")) == "浦发银行"
+    with pytest.raises(UnicodeDecodeError):
+        P._tdx_name(b"\x80\x80abc")  # 中间的坏字节仍然报错
