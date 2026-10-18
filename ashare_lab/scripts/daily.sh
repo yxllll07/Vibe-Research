@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 盘后日常:D 日收盘后运行(通达信盘后包通常 17:00 后发布)。
-# 补日历和盘后包 → 重建特征(并出 v1 计划) → 更新申万行业 → 情绪 / 主线 / 龙头 → 当前系统(只用过去数据学开关表)的 T 日预选池。
+# 补日历和盘后包 → 重建特征(并出 v1 计划) → 更新申万行业 → 情绪 / 主线 / 龙头 → 情绪开关系统的 T 日预选池 → 竞价修复系统:结算台账、重训模型并冻结 D 日快照。
 # 用法:ashare_lab/scripts/daily.sh [YYYY-MM-DD]   默认今天(北京时间)
 # 定时示例(crontab,服务器时区为 Asia/Shanghai):  30 20 * * 1-5  cd /path/to/Vibe-Research && ashare_lab/scripts/daily.sh >> .local/ashare_lab/daily.log 2>&1
 set -euo pipefail
@@ -19,3 +19,5 @@ $PY -m ashare_lab daily --date "$D"
 $PY -m ashare_lab sectors
 $PY -m ashare_lab structure
 $PY -m ashare_lab plan-v3 --date "$D"
+$PY -m ashare_lab relay-settle
+$PY -m ashare_lab relay-train --date "$D"

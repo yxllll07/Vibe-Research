@@ -76,6 +76,14 @@ def main(argv: list[str] | None = None) -> int:
     wf.add_argument("--start", required=True)
     wf.add_argument("--end", required=True)
     wf.add_argument("--objective", default="realized", choices=["realized", "close_up"], help="realized = 可兑现收益(默认);close_up = 只看当天收涨")
+    rt = sub.add_parser("relay-train", help="竞价修复:D 日盘后重训模型并冻结 D 日特征快照")
+    rt.add_argument("--date", required=True)
+    rp = sub.add_parser("relay-pick", help="竞价修复:T 日 9:26 拉全市场竞价,出前 5")
+    rp.add_argument("--date", required=True)
+    rp.add_argument("--replay", action="store_true", help="历史复现:用 T 日开盘价当竞价价")
+    rf = sub.add_parser("relay-fill", help="竞价修复:T 日 9:31 后记录前 5 的可成交价")
+    rf.add_argument("--date", required=True)
+    sub.add_parser("relay-settle", help="竞价修复:结算已到 T+1 收盘的选票,写台账")
     rv = sub.add_parser("review", help="单日复盘:信号日 D 的计划、T 日执行到卖出、事后诊断")
     rv.add_argument("--date", required=True)
     q = sub.add_parser("quality", help="数据覆盖率与一致性报告")
@@ -194,6 +202,17 @@ def main(argv: list[str] | None = None) -> int:
 
         r = walk_forward(load_panel(cfg), _d(args.start), _d(args.end), objective=args.objective)
         print(json.dumps(r["metrics"], ensure_ascii=False, indent=2, default=str))
+    elif args.cmd in ("relay-train", "relay-pick", "relay-fill", "relay-settle"):
+        from .system import relay
+
+        if args.cmd == "relay-train":
+            print(relay.train(cfg, _d(args.date)))
+        elif args.cmd == "relay-pick":
+            print(relay.pick(cfg, _d(args.date), replay=args.replay))
+        elif args.cmd == "relay-fill":
+            print(relay.fill(cfg, _d(args.date)))
+        else:
+            print(relay.settle(cfg))
     elif args.cmd == "review":
         from .system.review import review_day
 

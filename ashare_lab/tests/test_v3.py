@@ -69,3 +69,22 @@ def test_walkforward_refuses_future_outcomes():
         learn_gates(real, market, cutoff=date(2026, 1, 7))
     with pytest.raises(LeakageError):
         learn_gates(real.assign(x_date=[None]), market, cutoff=date(2026, 1, 8))  # 卖出日未知
+
+
+def test_relay_score_skips_limit_up_and_suspended(tmp_path):
+    import lightgbm as lgb
+    import numpy as np
+
+    from ashare_lab.system import relay
+
+    rng = np.random.default_rng(0)
+    n = 400
+    X = pd.DataFrame(rng.normal(size=(n, len(relay.FEATURES))), columns=relay.FEATURES)
+    m = lgb.LGBMClassifier(n_estimators=5, verbose=-1).fit(X, (X["gap"] < 0).astype(int))
+    m.booster_.save_model(str(tmp_path / "m.txt"))
+    snap = pd.DataFrame(rng.normal(size=(3, len(relay.D_FEATURES))), columns=relay.D_FEATURES)
+    snap = snap.assign(ts_code=["a", "b", "c"], name=["A", "B", "C"], board="main", is_risk_warning=False, close=10.0)
+    # c 当天除权,参考价 9.5:竞价 9.9 是高开 4.2%,不是低开 1%
+    top = relay.score_day(snap, {"a": 11.0, "c": 9.9}, {"c": 9.5}, date(2026, 10, 19), tmp_path / "m.txt")
+    assert top["ts_code"].tolist() == ["c"]  # a 竞价到涨停价、b 无竞价,都跳过
+    assert abs(top.loc[0, "gap"] - (9.9 / 9.5 - 1)) < 1e-9
