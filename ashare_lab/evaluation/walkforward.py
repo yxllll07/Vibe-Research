@@ -18,7 +18,7 @@ T+1 收盘卖的平均净收益 ≥ REALIZED_MIN(否决「当天收涨、但隔�
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 import numpy as np
 import pandas as pd
@@ -30,7 +30,13 @@ MIN_DAYS = 20
 MARGIN = 0.03
 SUCCESS_MARGIN = 0.0015
 MODES = ("A", "B", "C", "D", "E")
-COST = 0.0015            # 双边佣金 + 印花税 + 过户费,约 0.15%
+COST = 0.0015            # 双边佣金 + 印花税 + 过户费,约 0.15%(2023-08-28 印花税减半之后)
+COST_BEFORE_20230828 = 0.002  # 之前印花税 0.1%,多 0.05%
+STAMP_CUT = date(2023, 8, 28)
+
+
+def cost_on(sell_date: object) -> float:
+    return COST_BEFORE_20230828 if isinstance(sell_date, date) and sell_date < STAMP_CUT else COST
 REALIZED_MIN = 0.0       # 否决门槛:过去可兑现平均净收益 < 0 的格子不放行
 EXITS = ("open1", "close1")
 EXIT = "close1"          # 固定 T+1 收盘卖(每格各自挑卖法试过,更吵、逐月前推更差)
@@ -75,10 +81,10 @@ def _realized(c: pd.DataFrame, panel: pd.DataFrame) -> pd.DataFrame:
     c_dt = x["trade_date_2"].where(sell_close, later_dt)
     entry = c["t_open"].to_numpy()
     out = c.copy()
-    out["r_open1"] = o_px.to_numpy() / entry - 1 - COST
     out["x_open1"] = o_dt.to_numpy()
-    out["r_close1"] = c_px.to_numpy() / entry - 1 - COST
     out["x_close1"] = c_dt.to_numpy()
+    out["r_open1"] = o_px.to_numpy() / entry - 1 - out["x_open1"].map(cost_on).to_numpy()
+    out["r_close1"] = c_px.to_numpy() / entry - 1 - out["x_close1"].map(cost_on).to_numpy()
     # 两种卖法都确定之后才算「结果已知」
     both = out["x_open1"].notna() & out["x_close1"].notna()
     out["x_date"] = pd.Series(np.where(both, np.maximum(out["x_open1"].where(both, date.min).astype(object),
@@ -166,14 +172,23 @@ def apply_gates(day_cands: pd.DataFrame, gates: dict[str, tuple[str, ...]]) -> p
     return None if pick.empty else pick.iloc[[0]]
 
 
-def walk_forward(panel: pd.DataFrame, start: date, end: date, objective: str = "realized") -> dict:
-    c, market = outcomes(panel)
+def recent(df: pd.DataFrame, cutoff: date, lookback_days: int | None) -> pd.DataFrame:
+    """只保留信号日在截止日之前 lookback_days 个自然日内的行;None = 从数据起点开始的全部历史。"""
+    if lookback_days is None:
+        return df
+    return df[df["trade_date"] >= cutoff - timedelta(days=lookback_days)]
+
+
+def walk_forward(panel: pd.DataFrame, start: date, end: date, objective: str = "realized",
+                 lookback_days: int | None = None, outcomes_cache: tuple[pd.DataFrame, pd.DataFrame] | None = None) -> dict:
+    c, market = outcomes_cache if outcomes_cache is not None else outcomes(panel)
     months = sorted({(d.year, d.month) for d in c["trade_date"] if start <= d <= end})
     picks, tables = [], []
     for y, mth in months:
         days = sorted(d for d in c["trade_date"].unique() if (d.year, d.month) == (y, mth) and start <= d <= end)
         cutoff = days[0]
-        gates, cell = learn_gates(known_before(c, cutoff, objective), market[market["t_date"] < cutoff], cutoff, objective)
+        gates, cell = learn_gates(recent(known_before(c, cutoff, objective), cutoff, lookback_days),
+                                  recent(market[market["t_date"] < cutoff], cutoff, lookback_days), cutoff, objective)
         tables.append(cell.assign(month=f"{y}-{mth:02d}"))
         exits = {(s_, m_): e_ for s_, m_, e_ in zip(cell["stage"], cell["mode"], cell["exit"])}
         for d in days:
@@ -183,7 +198,7 @@ def walk_forward(panel: pd.DataFrame, start: date, end: date, objective: str = "
                 picks.append(r)
     pk = pd.concat(picks, ignore_index=True) if picks else pd.DataFrame()
     mk = market[(market["trade_date"] >= start) & (market["trade_date"] <= end)]
-    res = {"range": [str(start), str(end)], "objective": objective, "min_days": MIN_DAYS,
+    res = {"range": [str(start), str(end)], "objective": objective, "min_days": MIN_DAYS, "lookback_days": lookback_days,
            "signal_days": int(len(mk)), "market_close_up_rate": float(mk["mkt_win"].mean())}
     if not pk.empty:
         pk["ret"] = [r[f"r_{e}"] if e in EXITS else r["t_oc"] - COST for r, e in zip(pk.to_dict("records"), pk["exit"])]

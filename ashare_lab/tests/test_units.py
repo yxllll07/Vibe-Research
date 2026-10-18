@@ -23,6 +23,9 @@ def test_limit_rounding_half_up():
     assert limit_band(10.0, "chinext", False, date(2025, 1, 2)).up == 12.0
     assert not limit_band(10.0, "main", False, date(2025, 1, 2), listed_trading_days=5).has_limit
     assert limit_band(10.0, "main", False, date(2025, 1, 2), listed_trading_days=6).up == 11.0
+    # 主板全面注册制(2023-04-10)之前:首日特殊笼子(无常规涨跌停),第 2 天起 ±10%
+    assert not limit_band(10.0, "main", False, date(2022, 6, 1), listed_trading_days=1).has_limit
+    assert limit_band(10.0, "main", False, date(2022, 6, 1), listed_trading_days=2).up == 11.0
 
 
 def test_delisting_period_first_day_has_no_limit():

@@ -9,7 +9,7 @@ data:
   daily_provider: tdx_package
   calendar_provider: sina
   # 拉取起点早于训练起点,给 60 日窗口特征留预热。
-  ingest_start: '2024-07-01'
+  ingest_start: '2021-08-13'  # 通达信官网盘后包最早只保留到 2021-08-13(2021-08-02 起及更早返回 404)
   ingest_end: '2026-10-16'
   # 通达信盘后包当日何时可用没有官方时间戳,按保守假设:收盘当日 20:00 后才算可见。
   tdx_available_at_local_time: '20:00:00'
