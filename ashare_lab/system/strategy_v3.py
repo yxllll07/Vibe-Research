@@ -28,7 +28,9 @@ QUOTE_URL = "https://qt.gtimg.cn/q="
 _WF_GATES: dict[date, dict[str, tuple[str, ...]]] = {}
 
 
-DEFAULT_RULES = "wf"  # wf = 开关表只用 D 日及以前已收盘的结果现学(evaluation/walkforward.py);v3 / v4 = 手写表(看过全样本)
+DEFAULT_RULES = "wf"  # wf = 只用过去已兑现的结果现学开关表,T+1 收盘卖(evaluation/walkforward.py,当前默认)
+# wf1 = 上一版:只看当天收涨率学开关表;v3 / v4 = 手写表(看过全样本)
+WF_OBJECTIVE = {"wf": "realized", "wf1": "close_up"}
 
 
 def plans_root(cfg: Config, rules: str = DEFAULT_RULES) -> Path:
@@ -40,13 +42,15 @@ def preselect_day(panel: pd.DataFrame, d: date, rules: str = DEFAULT_RULES) -> t
     if day.empty:
         raise RuntimeError(f"没有 {d} 的特征,先跑 build / structure")
     stage = str(day["stage"].iloc[0])
-    if rules == "wf":
-        from ..evaluation.walkforward import learn_gates, outcomes, preselect_with_gates
+    if rules in WF_OBJECTIVE:
+        from ..evaluation.walkforward import known_before, learn_gates, outcomes, preselect_with_gates
 
-        hist, market = outcomes(panel[panel["trade_date"] <= d])  # D 日自己的 T 日结果未知,自动不在里面
-        gates, _ = learn_gates(hist, market, cutoff=d + timedelta(days=1))
+        obj = WF_OBJECTIVE[rules]
+        cutoff = d + timedelta(days=1)
+        hist, market = outcomes(panel[panel["trade_date"] <= d])  # 只到 D 日:之后的价格不存在,结果未知的行被 known_before 去掉
+        gates, _ = learn_gates(known_before(hist, cutoff, obj), market[market["t_date"] < cutoff], cutoff, obj)
         pool = preselect_with_gates(modes_v2.candidates(day), gates)
-        pool["rule_version"] = "WALKFORWARD"
+        pool["rule_version"] = f"WALKFORWARD_{obj.upper()}"
         _WF_GATES[d] = gates
     else:
         pool = modes_v3.preselect(modes_v2.candidates(day), rules=rules)
@@ -61,8 +65,8 @@ def write_plan(cfg: Config, d: date, panel: pd.DataFrame | None = None, replay: 
     cal = TradingCalendar.load(calendar_path(cfg.data_root))
     t = cal.next(d)
     stage, pool = preselect_day(panel, d, rules)
-    if rules == "wf":
-        version = "WALKFORWARD"
+    if rules in WF_OBJECTIVE:
+        version = f"WALKFORWARD_{WF_OBJECTIVE[rules].upper()}"
         modes = _WF_GATES[d].get(stage, ())
         expect = f"按 {d} 及以前已收盘的结果学到的开关表" + ("" if modes else ",该阶段没有放行的模式,不开仓")
     else:
@@ -77,7 +81,9 @@ def write_plan(cfg: Config, d: date, panel: pd.DataFrame | None = None, replay: 
     doc = {"rule_version": version, "signal_date": str(d), "target_date": str(t), "d_stage": stage,
            "t_expectation": expect, "allowed_modes": list(modes),
            "freeze_at": (datetime.combine(d, dtime(21, 0), TZ) if replay else datetime.now(TZ)).isoformat(),
-           "historical_replay": replay, "candidates": cands}
+           "historical_replay": replay,
+           "exit_rule": ("T+1 收盘卖;T+1 收盘在跌停价或停牌卖不出,顺延到之后第一个能卖的开盘" if rules == "wf" else "未规定(只评价当天收涨)"),
+           "candidates": cands}
     out_dir = plans_root(cfg, rules) / f"{d:%Y%m%d}"
     out_dir.mkdir(parents=True, exist_ok=True)
     n = len(list(out_dir.glob("plan.v*.json"))) + 1
@@ -90,6 +96,7 @@ def write_plan(cfg: Config, d: date, panel: pd.DataFrame | None = None, replay: 
 def render_plan(doc: dict) -> str:
     L = [f"# {doc['rule_version']} 交易计划:信号日 {doc['signal_date']} → 执行日 {doc['target_date']}", "",
          f"- D 日情绪阶段:**{doc['d_stage']}**;T 日预期:{doc['t_expectation']}",
+         f"- 卖出:{doc.get('exit_rule', '未规定')}",
          f"- 允许开盘买入的模式:{'、'.join(f'{m} {MODE_NAMES.get(m, m)}' for m in doc['allowed_modes']) or '无(空仓)'}", ""]
     if doc["candidates"]:
         L += ["T 日 9:25 后只看下面这些票的竞价,按顺序取第一只竞价没到涨停价的,开盘买入:", "",

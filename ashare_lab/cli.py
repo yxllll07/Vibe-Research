@@ -60,11 +60,11 @@ def main(argv: list[str] | None = None) -> int:
     rv2.add_argument("--date", required=True)
     p3 = sub.add_parser("plan-v3", help="v3:D 日晚冻结预选池并给出 T 日预期")
     p3.add_argument("--date", required=True)
-    p3.add_argument("--rules", default="wf", choices=["wf", "v3", "v4"], help="wf = 只用过去数据现学开关表(默认);v3 / v4 = 手写表")
+    p3.add_argument("--rules", default="wf", choices=["wf", "wf1", "v3", "v4"], help="wf = 只用过去已兑现的结果学开关表、T+1 收盘卖(默认);wf1 = 上一版(只看当天收涨);v3 / v4 = 手写表")
     p3.add_argument("--replay", action="store_true", help="历史复现:freeze_at 记为 D 日 21:00 并打标")
     a3 = sub.add_parser("auction-v3", help="v3:T 日 9:26 后只抓预选池内竞价,取第一只可买的")
     a3.add_argument("--date", required=True)
-    a3.add_argument("--rules", default="wf", choices=["wf", "v3", "v4"], help="wf = 只用过去数据现学开关表(默认);v3 / v4 = 手写表")
+    a3.add_argument("--rules", default="wf", choices=["wf", "wf1", "v3", "v4"], help="wf = 只用过去已兑现的结果学开关表、T+1 收盘卖(默认);wf1 = 上一版(只看当天收涨);v3 / v4 = 手写表")
     a3.add_argument("--file", default=None, help="9:25 最终竞价记录 JSON;不给则实时抓池内腾讯行情")
     a3.add_argument("-n", type=int, default=1, help="买几只")
     h3 = sub.add_parser("history-v3", help="v3 历史重放:T 日开盘买入当天收涨率")
@@ -75,6 +75,7 @@ def main(argv: list[str] | None = None) -> int:
     wf = sub.add_parser("walkforward", help="逐月前推:每月开关表只用当月之前已收盘的结果学习")
     wf.add_argument("--start", required=True)
     wf.add_argument("--end", required=True)
+    wf.add_argument("--objective", default="realized", choices=["realized", "close_up"], help="realized = 可兑现收益(默认);close_up = 只看当天收涨")
     rv = sub.add_parser("review", help="单日复盘:信号日 D 的计划、T 日执行到卖出、事后诊断")
     rv.add_argument("--date", required=True)
     q = sub.add_parser("quality", help="数据覆盖率与一致性报告")
@@ -191,7 +192,7 @@ def main(argv: list[str] | None = None) -> int:
         from .evaluation.walkforward import walk_forward
         from .system.strategy_v2 import load_panel
 
-        r = walk_forward(load_panel(cfg), _d(args.start), _d(args.end))
+        r = walk_forward(load_panel(cfg), _d(args.start), _d(args.end), objective=args.objective)
         print(json.dumps(r["metrics"], ensure_ascii=False, indent=2, default=str))
     elif args.cmd == "review":
         from .system.review import review_day

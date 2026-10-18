@@ -59,6 +59,13 @@ def test_walkforward_refuses_future_outcomes():
     hist = pd.DataFrame({"trade_date": [date(2026, 1, 5)], "t_date": [date(2026, 1, 6)], "ts_code": ["a"], "mode": ["B"],
                          "stage": ["震荡"], "score": [1.0], "buyable": [True], "win": [True]})
     market = pd.DataFrame({"trade_date": [date(2026, 1, 5)], "t_date": [date(2026, 1, 6)], "mkt_win": [0.5]})
-    learn_gates(hist, market, cutoff=date(2026, 1, 7))
+    learn_gates(hist, market, cutoff=date(2026, 1, 7), objective="close_up")
     with pytest.raises(LeakageError):
-        learn_gates(hist, market, cutoff=date(2026, 1, 6))  # T 日 = 截止日,当时还没收盘
+        learn_gates(hist, market, cutoff=date(2026, 1, 6), objective="close_up")  # T 日 = 截止日,当时还没收盘
+    # 可兑现口径:T+1 收盘才知道结果,卖出日 = 截止日也算未来
+    real = hist.assign(r_close1=[0.01], x_date=[date(2026, 1, 7)])
+    learn_gates(real, market, cutoff=date(2026, 1, 8))
+    with pytest.raises(LeakageError):
+        learn_gates(real, market, cutoff=date(2026, 1, 7))
+    with pytest.raises(LeakageError):
+        learn_gates(real.assign(x_date=[None]), market, cutoff=date(2026, 1, 8))  # 卖出日未知
