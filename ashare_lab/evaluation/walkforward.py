@@ -36,7 +36,9 @@ STAMP_CUT = date(2023, 8, 28)
 
 
 def cost_on(sell_date: object) -> float:
-    return COST_BEFORE_20230828 if isinstance(sell_date, date) and sell_date < STAMP_CUT else COST
+    if sell_date is None or pd.isna(sell_date):
+        return COST
+    return COST_BEFORE_20230828 if pd.Timestamp(sell_date).date() < STAMP_CUT else COST
 REALIZED_MIN = 0.0       # 否决门槛:过去可兑现平均净收益 < 0 的格子不放行
 EXITS = ("open1", "close1")
 EXIT = "close1"          # 固定 T+1 收盘卖(每格各自挑卖法试过,更吵、逐月前推更差)
